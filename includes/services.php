@@ -2,10 +2,14 @@
 /*
 	Loading a service?
 */
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /*
 	Note: The applydiscountcode goes through the site_url() instead of admin-ajax to avoid HTTP/HTTPS issues.
 */
-if(isset($_REQUEST['action']) && $_REQUEST['action'] == "applydiscountcode")
+if(isset($_REQUEST['action']) && $_REQUEST['action'] == "applydiscountcode") // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Routing only; the applydiscountcode service is a read-only discount code lookup for the checkout page.
 {		
 	function pmpro_applydiscountcode_init()
 	{
@@ -37,11 +41,32 @@ add_action('wp_ajax_nopriv_ipnhandler', 'pmpro_wp_ajax_ipnhandler');
 add_action('wp_ajax_ipnhandler', 'pmpro_wp_ajax_ipnhandler');
 function pmpro_wp_ajax_stripe_webhook()
 {
-	require_once(dirname(__FILE__) . "/../services/stripe-webhook.php");	
-	exit;	
+	require_once dirname(__FILE__) . '/../services/stripe-webhook.php';
+	exit;
 }
 add_action('wp_ajax_nopriv_stripe_webhook', 'pmpro_wp_ajax_stripe_webhook');
 add_action('wp_ajax_stripe_webhook', 'pmpro_wp_ajax_stripe_webhook');
+
+/**
+ * Process a Stripe webhook event via Action Scheduler.
+ *
+ * @param string $event_id Stripe Event ID.
+ * @param bool   $livemode Whether the event was live mode.
+ */
+function pmpro_stripe_webhook_process_scheduled_event( $event_id, $livemode = false ) {
+	if ( ! class_exists( 'PMPro_Stripe_Webhook_Handler' ) ) {
+		require_once dirname(__FILE__) . '/../services/class-pmpro-stripe-webhook-handler.php';
+	}
+	PMPro_Stripe_Webhook_Handler::run(
+		array(
+			'event_id'          => $event_id,
+			'livemode'          => $livemode,
+			'scheduled_request' => true,
+		)
+	);
+}
+add_action( 'pmpro_stripe_webhook_process_scheduled_event', 'pmpro_stripe_webhook_process_scheduled_event', 10, 2 );
+
 function pmpro_wp_ajax_braintree_webhook()
 {
 	require_once(dirname(__FILE__) . "/../services/braintree-webhook.php");	
@@ -56,18 +81,33 @@ function pmpro_wp_ajax_twocheckout_ins()
 }
 add_action('wp_ajax_nopriv_twocheckout-ins', 'pmpro_wp_ajax_twocheckout_ins');
 add_action('wp_ajax_twocheckout-ins', 'pmpro_wp_ajax_twocheckout_ins');
-function pmpro_wp_ajax_memberlist_csv()
-{
-	require_once(dirname(__FILE__) . "/../adminpages/memberslist-csv.php");	
+
+/**
+ * Handles the Visits, Views and Logins Export
+ */
+function pmpro_wp_ajax_login_report_csv() {
+	require_once(dirname(__FILE__) . "/../adminpages/login-csv.php");	
 	exit;	
 }
-add_action('wp_ajax_memberslist_csv', 'pmpro_wp_ajax_memberlist_csv');
-function pmpro_wp_ajax_orders_csv()
-{
-	require_once(dirname(__FILE__) . "/../adminpages/orders-csv.php");	
+add_action('wp_ajax_login_report_csv', 'pmpro_wp_ajax_login_report_csv');
+
+/**
+ * Handles the Sales Export
+ */
+function pmpro_wp_ajax_sales_report_csv() {
+	require_once(dirname(__FILE__) . "/../adminpages/sales-csv.php");	
 	exit;	
 }
-add_action('wp_ajax_orders_csv', 'pmpro_wp_ajax_orders_csv');
+add_action('wp_ajax_sales_report_csv', 'pmpro_wp_ajax_sales_report_csv');
+
+/**
+ * Handles the Membership Stats Export
+ */
+function pmpro_wp_ajax_membership_stats_csv() {
+	require_once(dirname(__FILE__) . "/../adminpages/memberships-csv.php");	
+	exit;	
+}
+add_action('wp_ajax_membership_stats_csv', 'pmpro_wp_ajax_membership_stats_csv');
 
 /**
  * Load the Orders print view.
@@ -84,16 +124,32 @@ add_action('wp_ajax_pmpro_orders_print_view', 'pmpro_orders_print_view');
  * Get order JSON.
  *
  * @since 1.8.6
+ * @since 2.9.10 - Only returns a subset of data. Only email is really used.
  */
 function pmpro_get_order_json() {
 	// only admins can get this
 	if ( ! function_exists( 'current_user_can' ) || ( ! current_user_can( 'manage_options' ) && ! current_user_can( 'pmpro_orders' ) ) ) {
-		die( __( 'You do not have permissions to perform this action.', 'paid-memberships-pro' ) );
+		die( esc_html__( 'You do not have permissions to perform this action.', 'paid-memberships-pro' ) );
 	}
-	
-	$order_id = intval( $_REQUEST['order_id'] );
+
+	// Check the nonce.
+	if ( empty( $_REQUEST['nonce'] ) || ! wp_verify_nonce( sanitize_key( $_REQUEST['nonce'] ), 'pmpro_get_order_json' ) ) {
+		die( esc_html__( 'You do not have permissions to perform this action.', 'paid-memberships-pro' ) );
+	}
+
+	$order_id = isset( $_REQUEST['order_id'] ) ? intval( $_REQUEST['order_id'] ) : 0;
 	$order = new MemberOrder($order_id);
-	echo json_encode($order);
+	$user = get_userdata($order->user_id);
+		
+	$r = array(
+		'id' => (int)$order->id,
+		'user_id' => (int)$order->user_id,
+		'membership_id' => (int)$order->membership_id,
+		'code' => esc_html( $order->code ),
+		'Email' => sanitize_email( empty( $user->user_email ) ? '' : $user->user_email ),		
+	);
+	
+	echo wp_json_encode($r);
 	exit;
 }
 add_action('wp_ajax_pmpro_get_order_json', 'pmpro_get_order_json');
@@ -101,7 +157,12 @@ add_action('wp_ajax_pmpro_get_order_json', 'pmpro_get_order_json');
 function pmpro_update_level_order() {
 	// only admins can get this
 	if ( ! function_exists( 'current_user_can' ) || ( ! current_user_can( 'manage_options' ) && ! current_user_can( 'pmpro_membershiplevels' ) ) ) {
-		die( __( 'You do not have permissions to perform this action.', 'paid-memberships-pro' ) );
+		die( esc_html__( 'You do not have permissions to perform this action.', 'paid-memberships-pro' ) );
+	}
+
+	// Check the nonce.
+	if ( empty( $_REQUEST['nonce'] ) || ! wp_verify_nonce( sanitize_key( $_REQUEST['nonce'] ), 'pmpro_update_level_order' ) ) {
+		die( esc_html__( 'You do not have permissions to perform this action.', 'paid-memberships-pro' ) );
 	}
 
 	$level_order = null;
@@ -110,10 +171,43 @@ function pmpro_update_level_order() {
 		$level_order = array_map( 'intval', $_REQUEST['level_order'] );
 		$level_order = implode(',', $level_order );
 	} else if ( isset( $_REQUEST['level_order'] ) ) {
-		$level_order = sanitize_text_field( $_REQUEST['level_order'] );
+		$level_order = sanitize_text_field( wp_unslash( $_REQUEST['level_order'] ) );
 	}
 	
-	echo pmpro_setOption('level_order', $level_order);
+	echo esc_html( update_option('pmpro_level_order', $level_order) );
     exit;
 }
 add_action('wp_ajax_pmpro_update_level_order', 'pmpro_update_level_order');
+
+function pmpro_update_level_group_order() {
+	// only admins can get this
+	if ( ! function_exists( 'current_user_can' ) || ( ! current_user_can( 'manage_options' ) && ! current_user_can( 'pmpro_membershiplevels' ) ) ) {
+		die( esc_html__( 'You do not have permissions to perform this action.', 'paid-memberships-pro' ) );
+	}
+
+	// Check the nonce.
+	if ( empty( $_REQUEST['nonce'] ) || ! wp_verify_nonce( sanitize_key( $_REQUEST['nonce'] ), 'pmpro_update_level_group_order' ) ) {
+		die( esc_html__( 'You do not have permissions to perform this action.', 'paid-memberships-pro' ) );
+	}
+
+	$level_group_order = null;
+	
+	if ( isset( $_REQUEST['level_group_order'] ) && is_array( $_REQUEST['level_group_order'] ) ) {
+		$level_group_order = array_map( 'intval', $_REQUEST['level_group_order'] );
+	} else if ( isset( $_REQUEST['level_group_order'] ) ) {
+		$level_group_order = explode(',', sanitize_text_field( wp_unslash( $_REQUEST['level_group_order'] ) ) );
+	}
+
+	$count = 1;
+	foreach ( $level_group_order as $level_group_id ) {
+		$level_group = pmpro_get_level_group( $level_group_id );
+		if ( ! empty( $level_group ) ) {
+			pmpro_edit_level_group( $level_group_id, $level_group->name, $level_group->allow_multiple_selections, $count );
+		}
+		$count++;
+	}
+
+	exit;
+}
+add_action('wp_ajax_pmpro_update_level_group_order', 'pmpro_update_level_group_order');
+

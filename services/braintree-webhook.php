@@ -7,15 +7,12 @@
 
 use Braintree\WebhookNotification as Braintree_WebhookNotification;
 
-// If loading directly, make sure we return a 200 HTTP status
-global $isapage;
-$isapage = true;
-
 //in case the file is loaded directly
-if ( ! defined( "ABSPATH" ) ) {
-	define( 'WP_USE_THEMES', false );
-	require_once( dirname( __FILE__ ) . '/../../../../wp-load.php' );
+if( ! defined( 'ABSPATH' ) ) {
+	exit;
 }
+
+// phpcs:disable WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing -- Braintree webhook; gateway requests can't carry a WordPress nonce. The payload is authenticated by Braintree_WebhookNotification::parse(), which verifies bt_signature.
 
 //globals
 global $wpdb;
@@ -59,14 +56,16 @@ try {
 	 * @since 1.9.5 - BUG FIX: Unable to identify Braintree Webhook messages
 	 * Expecting Braintree library to sanitize signature & payload 
 	 * since using sanitize_text_field() breaks Braintree parser
+	 * 
+	 * NOTE: The Braintree API needs the unsanitized input.
 	 */
-	$webhookNotification = Braintree_WebhookNotification::parse( $_POST['bt_signature'], $_POST['bt_payload'] );
+	$webhookNotification = Braintree_WebhookNotification::parse( $_POST['bt_signature'], $_POST['bt_payload'] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.MissingUnslash -- Braintree verifies the raw signature against the raw payload; unslashing or sanitizing could alter the signed bytes.
 	
 	$logstr[] = "\webhookNotification:";
 	$logstr[] = var_export( $webhookNotification, true );
 	$logstr[] = "\n";
 } catch ( Exception $e ) {
-	$logstr[] = "Couldn't extract notification from payload: {$_REQUEST['bt_payload']}";
+	$logstr[] = "Couldn't extract notification from payload: {$_REQUEST['bt_payload']}"; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotValidatedNotSanitized -- Presence is checked by the empty( $_REQUEST['bt_payload'] ) exit above; logged verbatim for debugging (the log goes to a restricted file or an esc_html() email).
 	$logstr[] = "Error message: " . $e->getMessage();
 	
 	pmpro_braintreeWebhookExit();
@@ -92,7 +91,7 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::CHECK ) {
 	pmpro_braintreeWebhookExit();
 }
 
-//subscription charged sucessfully
+//subscription charged successfully
 if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_CHARGED_SUCCESSFULLY ) {
 	$logstr[] = "The Braintree gateway received payment for a recurring billing plan";
 	
@@ -127,14 +126,14 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 	$transaction = $webhookNotification->subscription->transactions[0];
 
 	//log it for debug email
-	$logstr[] = var_export( $transaction );
+	$logstr[] = var_export( $transaction, true );
 
-	//alright. create a new order/invoice
+	//alright. create a new order
 	$morder                              = new \MemberOrder();
 	$morder->user_id                     = $old_order->user_id;
 	$morder->membership_id               = $old_order->membership_id;
-	$morder->InitialPayment              = $transaction->amount;    //not the initial payment, but the order class is expecting this
-	$morder->PaymentAmount               = $transaction->amount;
+	$morder->subtotal                    = $transaction->amount;
+	$morder->total                       = $transaction->amount;
 	$morder->payment_transaction_id      = $transaction->id;
 	$morder->subscription_transaction_id = $webhookNotification->subscription->id;
 
@@ -147,15 +146,6 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 	$morder->billing = new stdClass();
 	
 	if (! empty( $transaction->billing_details) ) {
-		$morder->FirstName = $transaction->billing_details->first_name;
-		$morder->LastName  = $transaction->billing_details->last_name;
-		$morder->Email     = $wpdb->get_var( "SELECT user_email FROM $wpdb->users WHERE ID = '" . $old_order->user_id . "' LIMIT 1" );
-		$morder->Address1  = $transaction->billing_details->street_address;
-		$morder->City      = $transaction->billing_details->locality;
-		$morder->State     = $transaction->billing_details->region;
-		//$morder->CountryCode = $old_order->billing->city;
-		$morder->Zip         = $transaction->billing_details->postal_code;
-		
 		$morder->billing->name    = trim( $transaction->billing_details->first_name . " " . $transaction->billing_details->last_name );
 		$morder->billing->street  = $transaction->billing_details->street_address;
 		$morder->billing->city    = $transaction->billing_details->locality;
@@ -163,39 +153,26 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 		$morder->billing->zip     = $transaction->billing_details->postal_code;
 		$morder->billing->country = $transaction->billing_details->country_code_alpha2;	
 	} else {
-		$morder->FirstName = $old_order->FirstName;
-		$morder->LastName = $old_order->LastName;
-		$morder->Email = $user->user_email;
-		$morder->Address1 = $old_order->Address1;
-		$morder->City = $old_order->billing->city;
-		$morder->State = $old_order->billing->state;
-		$morder->Zip = $old_order->billing->zip;
-		
 		$morder->billing->name    = $old_order->billing->name;
 		$morder->billing->street  = $old_order->billing->street;
+		$morder->billing->street2 = $old_order->billing->street2;
 		$morder->billing->city    = $old_order->billing->city;
 		$morder->billing->state   = $old_order->billing->state;
 		$morder->billing->zip     = $old_order->billing->zip;
 		$morder->billing->country = $old_order->billing->country;
 	}
 	
-	$morder->PhoneNumber = $old_order->billing->phone;
 	$morder->billing->phone   = $old_order->billing->phone;
 	
-	//get CC info that is on file
-	$morder->cardtype              = get_user_meta( $user_id, "pmpro_CardType", true );
-	$morder->accountnumber         = hideCardNumber( get_user_meta( $user_id, "pmpro_AccountNumber", true ), false );
-	$morder->expirationmonth       = get_user_meta( $user_id, "pmpro_ExpirationMonth", true );
-	$morder->expirationyear        = get_user_meta( $user_id, "pmpro_ExpirationYear", true );
-	$morder->ExpirationDate        = $morder->expirationmonth . $morder->expirationyear;
-	$morder->ExpirationDate_YdashM = $morder->expirationyear . "-" . $morder->expirationmonth;
+	//Updates this order with the most recent orders payment method information and saves it. 
+	pmpro_update_order_with_recent_payment_method( $morder );
 	
 	//save
 	$morder->status = "success";
 	$morder->saveOrder();
 	$morder->getMemberOrderByID( $morder->id );
 	
-	//email the user their invoice
+	//email the user their order
 	$pmproemail = new \PMProEmail();
 	$pmproemail->sendInvoiceEmail( $user, $morder );
 	
@@ -244,11 +221,6 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 		$webhookNotification->transactions[0] :
 		null;
 	
-	if ( empty( $transaction ) || ! isset( $transaction->billing_details ) ) {
-		// Get billing address info from either old order or billing meta
-		$old_order->billing = pmpro_braintreeAddressInfo( $user_id, $old_order );
-	}
-	
 	//prep this order for the failure emails
 	$morder          = new \MemberOrder();
 	$morder->user_id = $user_id;
@@ -281,11 +253,8 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 	
 	$morder->billing->phone = $old_order->billing->phone;
 	
-	//get CC info that is on file
-	$morder->cardtype        = get_user_meta( $user_id, "pmpro_CardType", true );
-	$morder->accountnumber   = hideCardNumber( get_user_meta( $user_id, "pmpro_AccountNumber", true ), false );
-	$morder->expirationmonth = get_user_meta( $user_id, "pmpro_ExpirationMonth", true );
-	$morder->expirationyear  = get_user_meta( $user_id, "pmpro_ExpirationYear", true );
+	//Updates this order with the most recent orders payment method information and saves it. 
+	pmpro_update_order_with_recent_payment_method( $morder );
 	
 	// Email the user and ask them to update their credit card information
 	$pmproemail = new \PMProEmail();
@@ -331,11 +300,6 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 		$webhookNotification->transactions[0] :
 		null;
 	
-	if ( empty( $transaction ) || ! isset( $transaction->billing_details ) ) {
-		// Get billing address info from either old order or billing meta
-		$old_order->billing = pmpro_braintreeAddressInfo( $user_id, $old_order );
-	}
-	
 	//prep this order for the failure emails
 	$morder          = new \MemberOrder();
 	$morder->user_id = $user_id;
@@ -367,11 +331,8 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 	
 	$morder->billing->phone = $old_order->billing->phone;
 	
-	//get CC info that is on file
-	$morder->cardtype        = get_user_meta( $user_id, "pmpro_CardType", true );
-	$morder->accountnumber   = hideCardNumber( get_user_meta( $user_id, "pmpro_AccountNumber", true ), false );
-	$morder->expirationmonth = get_user_meta( $user_id, "pmpro_ExpirationMonth", true );
-	$morder->expirationyear  = get_user_meta( $user_id, "pmpro_ExpirationYear", true );
+	//Updates this order with the most recent orders payment method information and saves it. 
+	pmpro_update_order_with_recent_payment_method( $morder );
 	
 	// Email the user and ask them to update their credit card information
 	$pmproemail = new \PMProEmail();
@@ -415,11 +376,6 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 		$webhookNotification->transactions[0] :
 		null;
 	
-	if ( empty( $transaction ) || ! isset( $transaction->billing_details ) ) {
-		// Get billing address info from either old order or billing meta
-		$old_order->billing = pmpro_braintreeAddressInfo( $user_id, $old_order );
-	}
-	
 	// We don't currently allow billing limits (number_of_billing_cycles) on Braintree subscriptions.
 	// But in case we get here, let's send the correct email to the admin.	
 	$myemail = new PMProEmail();
@@ -435,72 +391,14 @@ if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_
 
 //subscription cancelled (they used one l canceled)
 if ( $webhookNotification->kind === Braintree_WebhookNotification::SUBSCRIPTION_CANCELED ) {
-	
-	$logstr[] = "The Braintree gateway cancelled the subscription plan";
-	
-	//need a subscription id
+	$logstr[] = 'The Braintree gateway cancelled the subscription plan';
+
+	// Need a subscription id.
 	if ( empty( $webhookNotification->subscription->id ) ) {
-		$logstr[] = "No subscription ID.";
+		$logstr[] = 'No subscription ID.';
 		pmpro_braintreeWebhookExit();
 	}
-	
-	//figure out which order to attach to
-	$old_order = new \MemberOrder();
-	$old_order->getLastMemberOrderBySubscriptionTransactionID( $webhookNotification->subscription->id );
-	
-	if ( empty( $old_order ) ) {
-		$logstr[] = "Couldn't find old order for failed payment with subscription id={$webhookNotification->subscription->id}";
-		pmpro_braintreeWebhookExit();
-	}
-	
-	/**
-	 * @since v1.9.5+ - BUG FIX: Don't process previously handled subscription cancellation
-	 */
-	if ( isset( $old_order->status ) && 'cancelled' == $old_order->status ) {
-		$logstr[] = "Order for subscription id {$webhookNotification->subscription->id} is cancelled already";
-		pmpro_braintreeWebhookExit();
-	}
-	
-	$user_id                = $old_order->user_id;
-	$user                   = get_userdata( $user_id );
-	$user->membership_level = pmpro_getMembershipLevelForUser( $user_id,true );
-	
-	/**
-	 * @since 1.9.5 - BUG FIX: Erroneously triggering warning email
-	 *                Happens when a user cancels their membership (and Braintree) sends a webhook notifying us
-	 *                of the fact that the user cancelled their subscription plan (SUBSCRIPTION_CANCELED event).
-	 */
-	if ( empty( $user->membership_level ) ) {
-		
-		$logstr[] = "Membership for user (ID: {$user_id}) is cancelled already. Probably a duplicate webhook notification. Exiting!";
-		pmpro_braintreeWebhookExit();
-	}
-	
-	// Trigger subscription cancelled action
-	do_action( "pmpro_subscription_cancelled", $old_order );
-	
-	$transaction = isset( $webhookNotification->transactions ) && is_array( $webhookNotification->transactions ) ?
-		$webhookNotification->transactions[0] :
-		null;
-	
-	if ( empty( $transaction ) || ! isset( $transaction->billing_details ) ) {
-		// Get billing address info from either old order or billing meta
-		$old_order->billing = pmpro_braintreeAddressInfo( $user_id, $old_order );
-	}
-	
-	// Cancel the related membership.
-	pmpro_cancelMembershipLevel( $old_order->membership_id, $old_order->user_id, 'cancelled' );
-	
-	$logstr[] = "Cancelled membership for user with id = {$old_order->user_id}. Subscription transaction id = {$old_order->subscription_transaction_id}.\n";
-	
-	// Send an email to the member.
-	$myemail = new PMProEmail();
-	$myemail->sendCancelEmail( $user, $old_order->membership_id );
-	
-	// Send an email to the admin.
-	$myemail = new PMProEmail();
-	$myemail->sendCancelAdminEmail( $user, $old_order->membership_id );
-	
+	$logstr[] = pmpro_handle_subscription_cancellation_at_gateway( $webhookNotification->subscription->id, 'braintree', get_option( 'pmpro_gateway_environment' ) );
 	pmpro_braintreeWebhookExit();
 }
 
@@ -514,13 +412,15 @@ pmpro_braintreeWebhookExit();
 /**
  * Fix address info for order/transaction
  *
+ * @deprecated 3.2
+ *
  * @param int          $user_id
  * @param \MemberOrder $old_order
  *
  * @return \stdClass
  */
 function pmpro_braintreeAddressInfo( $user_id, $old_order ) {
-	
+	_deprecated_function( __FUNCTION__, '3.2' );
 	
 	// Grab billing info from the saved metadata as needed
 	
@@ -586,7 +486,7 @@ function pmpro_braintreeWebhookExit() {
 		//log in file or email?
 		if ( defined( 'PMPRO_BRAINTREE_WEBHOOK_DEBUG' ) && PMPRO_BRAINTREE_WEBHOOK_DEBUG === "log" ) {
 			//file
-			$logfile = apply_filters( 'pmpro_braintree_webhook_logfile', dirname( __FILE__ ) . "/../logs/braintree-webhook.txt" );
+			$logfile = apply_filters( 'pmpro_braintree_webhook_logfile', pmpro_get_restricted_file_path( 'logs', 'braintree-webhook.txt' ) );
 			$loghandle = fopen( $logfile, "a+" );
 			fwrite( $loghandle, $debuglog );
 			fclose( $loghandle );

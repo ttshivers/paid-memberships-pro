@@ -1,7 +1,11 @@
 <?php
 /*
-	This file was added in version 1.5.5 of the plugin. This file is meant to store various hacks, filters, and actions that were originally developed outside of the PMPro core and brought in later... or just things that are cleaner/easier to impement via hooks and filters.
+	This file was added in version 1.5.5 of the plugin. This file is meant to store various hacks, filters, and actions that were originally developed outside of the PMPro core and brought in later... or just things that are cleaner/easier to implement via hooks and filters.
 */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
 /*
 	If checking out for the same level, add remaining days to the enddate.
@@ -9,6 +13,11 @@
 */
 function pmpro_checkout_level_extend_memberships( $level ) {
 	global $pmpro_msg, $pmpro_msgt;
+
+	// A set expiration date replaces duration-based expiration, so there is nothing to extend.
+	if ( ! empty( $level ) && ! empty( $level->id ) && pmpro_resolve_expiration_date_pattern( pmpro_get_set_expiration_date( $level->id, ! empty( $level->code_id ) ? $level->code_id : null ) ) ) {
+		return $level;
+	}
 
 	// does this level expire? are they an existing user of this level?
 	if ( ! empty( $level ) && ! empty( $level->expiration_number ) && pmpro_hasMembershipLevel( $level->id ) ) {
@@ -28,22 +37,12 @@ function pmpro_checkout_level_extend_memberships( $level ) {
 
 		// time left?
 		if ( $time_left > 0 ) {
-			// convert to days and add to the expiration date (assumes expiration was 1 year)
-			$days_left = floor( $time_left / ( 60 * 60 * 24 ) );
+			// Calculate when the new expiration date should be.
+			$new_expiration_date = strtotime( '+' . $level->expiration_number . ' ' . $level->expiration_period, $expiration_date);
 
-			// figure out days based on period
-			if ( $level->expiration_period == 'Day' ) {
-				$total_days = $days_left + $level->expiration_number;
-			} elseif ( $level->expiration_period == 'Week' ) {
-				$total_days = $days_left + $level->expiration_number * 7;
-			} elseif ( $level->expiration_period == 'Month' ) {
-				$total_days = $days_left + $level->expiration_number * 30;
-			} elseif ( $level->expiration_period == 'Year' ) {
-				$total_days = $days_left + $level->expiration_number * 365;
-			}
-
-			// update number and period
-			$level->expiration_number = $total_days;
+			// Set the level to expire in that many days.
+			$days_until_new_expiration = floor( ( $new_expiration_date - $todays_date ) / ( 60 * 60 * 24 ) );
+			$level->expiration_number = $days_until_new_expiration;
 			$level->expiration_period = 'Day';
 		}
 	}
@@ -51,6 +50,44 @@ function pmpro_checkout_level_extend_memberships( $level ) {
 	return $level;
 }
 add_filter( 'pmpro_checkout_level', 'pmpro_checkout_level_extend_memberships' );
+
+/**
+ * Apply a level's or discount code's set expiration date to a level being checked out.
+ *
+ * A set expiration date replaces any duration-based expiration. Like the retired Set Expiration
+ * Dates Add On, express it in days so that the level object stays the source of truth for the
+ * end date everywhere downstream. This runs on the same filters and at the same priority as the
+ * Add On did, so that Add Ons that filter the level before it (e.g. Auto-Renewal Checkbox) or
+ * apply these filters themselves (e.g. Paystack) keep working.
+ *
+ * @since 3.9
+ *
+ * @param object $level The level being checked out.
+ * @return object The level with any set expiration date applied.
+ */
+function pmpro_checkout_level_set_expiration_date( $level ) {
+	if ( empty( $level->id ) ) {
+		return $level;
+	}
+
+	$set_expiration_date      = pmpro_get_set_expiration_date( $level->id, ! empty( $level->code_id ) ? $level->code_id : null );
+	$resolved_expiration_date = ! empty( $set_expiration_date ) ? pmpro_resolve_expiration_date_pattern( $set_expiration_date ) : false;
+	if ( ! empty( $resolved_expiration_date ) ) {
+		// Calendar days from today; the membership expires at the end of that day. A fixed
+		// date that has already passed expires after one day rather than never.
+		$days_until_expiration    = intval( round( ( strtotime( $resolved_expiration_date ) - strtotime( date( 'Y-m-d', current_time( 'timestamp' ) ) ) ) / DAY_IN_SECONDS ) );
+		$level->expiration_number = max( 1, $days_until_expiration );
+		$level->expiration_period = 'Day';
+
+		// Keep the date so that the expiration text shows a date, not a number of days.
+		$level->expiration_date = date( 'Y-m-d', strtotime( '+ ' . $level->expiration_number . ' Days', current_time( 'timestamp' ) ) );
+	}
+
+	return $level;
+}
+add_filter( 'pmpro_checkout_level', 'pmpro_checkout_level_set_expiration_date' );
+add_filter( 'pmpro_paystack_webhook_level', 'pmpro_checkout_level_set_expiration_date' );
+add_filter( 'pmpro_payfast_itnhandler_level', 'pmpro_checkout_level_set_expiration_date' );
 /*
 	Same thing as above but when processed by the ipnhandler for PayPal standard.
 */
@@ -103,10 +140,10 @@ add_filter( 'pmpro_ipnhandler_level', 'pmpro_ipnhandler_level_extend_memberships
 	Added with 1.5.5
 */
 function pmpro_checkout_start_date_keep_startdate( $startdate, $user_id, $level ) {
-	if ( pmpro_hasMembershipLevel( $level->id, $user_id ) ) {
-		global $wpdb;
+	global $wpdb;
+	if ( ! empty( $level ) && pmpro_hasMembershipLevel( $level->id, $user_id ) ) {
 		$sqlQuery = "SELECT startdate FROM $wpdb->pmpro_memberships_users WHERE user_id = '" . esc_sql( $user_id ) . "' AND membership_id = '" . esc_sql( $level->id ) . "' AND status = 'active' ORDER BY id DESC LIMIT 1";
-		$old_startdate = $wpdb->get_var( $sqlQuery );
+		$old_startdate = $wpdb->get_var( $sqlQuery ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Values are escaped with esc_sql() inside quotes. Queries a PMPro custom table, which has no WordPress API or object cache layer.
 
 		if ( ! empty( $old_startdate ) ) {
 			$startdate = "'" . $old_startdate . "'";
@@ -121,7 +158,7 @@ add_filter( 'pmpro_checkout_start_date', 'pmpro_checkout_start_date_keep_startda
 	Stripe Lite Pulled into Core Plugin
 */
 // Stripe Lite, Set the Globals/etc
-$stripe_billingaddress = pmpro_getOption( 'stripe_billingaddress' );
+$stripe_billingaddress = get_option( 'pmpro_stripe_billingaddress' );
 if ( empty( $stripe_billingaddress ) ) {
 	global $pmpro_stripe_lite;
 	$pmpro_stripe_lite = true;
@@ -157,11 +194,17 @@ function pmpro_required_billing_fields_stripe_lite( $fields ) {
 }
 
 // copy other discount code to discount code if latter is not set
-if ( empty( $_REQUEST['discount_code'] ) && ! empty( $_REQUEST['other_discount_code'] ) ) {
-	$_REQUEST['discount_code'] = $_REQUEST['other_discount_code'];
-	$_POST['discount_code'] = $_POST['other_discount_code'];
-	$_GET['discount_code'] = $_GET['other_discount_code'];
+// phpcs:disable WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing -- Only copies a request field alias into the request superglobals; nothing is saved here. Checkout processing that consumes it verifies pmpro_checkout_nonce in preheaders/checkout.php.
+if ( empty( $_REQUEST['pmpro_discount_code'] ) && ! empty( $_REQUEST['pmpro_other_discount_code'] ) ) {
+	$_REQUEST['pmpro_discount_code'] = sanitize_text_field( wp_unslash( $_REQUEST['pmpro_other_discount_code'] ) );
 }
+if ( empty( $_POST['pmpro_discount_code'] ) && ! empty( $_POST['pmpro_other_discount_code'] ) ) {
+	$_POST['pmpro_discount_code'] = sanitize_text_field( wp_unslash( $_POST['pmpro_other_discount_code'] ) );	
+}
+if ( empty( $_GET['pmpro_discount_code'] ) && ! empty( $_GET['pmpro_other_discount_code'] ) ) {
+	$_GET['pmpro_discount_code'] = sanitize_text_field( wp_unslash( $_GET['pmpro_other_discount_code'] ) );	
+}
+// phpcs:enable WordPress.Security.NonceVerification.Recommended, WordPress.Security.NonceVerification.Missing
 
 // apply all the_content filters to confirmation messages for levels
 function pmpro_pmpro_confirmation_message( $message ) {
@@ -185,56 +228,15 @@ add_filter( 'pmpro_level_description', 'pmpro_pmpro_level_description' );
 	Note that this affects PayPal Standard as well, but the fix
 	for that flavor of PayPal is different and may be included in future
 	updates.
+
+	This function is being deprecated as ProfileStartDate is no longer stored as an order property.
+	This is now coded directly into the PayPal Express subscribe() function.
+	@deprecated 3.2
 */
 function pmpro_pmpro_subscribe_order_startdate_limit( $order, $gateway ) {
-	$affected_gateways = array( 'paypalexpress', 'paypal' );
-
-	if ( in_array( $gateway->gateway, $affected_gateways ) ) {
-		$original_start_date = strtotime( $order->ProfileStartDate, current_time( 'timestamp' ) );
-		$one_year_out = strtotime( '+1 Year', current_time( 'timestamp' ) );
-		$two_years_out = strtotime( '+2 Year', current_time( 'timestamp' ) );
-		$one_year_out_date = date_i18n( 'Y-m-d', $one_year_out ) . 'T0:0:0';
-		$days_past = floor( ( $original_start_date - $one_year_out ) / DAY_IN_SECONDS );
-		if ( ! empty( $order->ProfileStartDate ) && $order->ProfileStartDate > $one_year_out_date ) {
-			// try to squeeze into the trial
-			if ( empty( $order->TrialBillingPeriod ) && $days_past > 0 ) {
-				// update the order
-				$order->TrialAmount = 0;
-				$order->TrialBillingPeriod = 'Day';
-				$order->TrialBillingFrequency = min( 365, $days_past );
-				$order->TrialBillingCycles = 1;
-			}
-
-			// max out at 1 year out no matter what
-			$order->ProfileStartDate = $one_year_out_date;
-
-			// if we were going to try to push it more than 2 years out, let's notify the admin
-			if ( ! empty( $order->TrialBillilngPeriod ) || $original_start_date > $two_years_out ) {
-				// setup user data
-				global $current_user;
-				if ( empty( $order->user_id ) ) {
-					$order->user_id = $current_user->ID;
-				}
-				$order->getUser();
-
-				// get level data
-				$level = pmpro_getLevel( $order->membership_id );
-
-				// create email
-				$pmproemail = new PMProEmail();
-				$body = '<p>' . __( "There was a potential issue while setting the 'Profile Start Date' for a user's subscription at checkout. PayPal does not allow one to set a Profile Start Date further than 1 year out. Typically, this is not an issue, but sometimes a combination of custom code or add ons for PMPro (e.g. the Prorating or Auto-renewal Checkbox add ons) will try to set a Profile Start Date out past 1 year in order to respect an existing user's original expiration date before they checked out. The user's information is below. PMPro has allowed the checkout and simply restricted the Profile Start Date to 1 year out with a possible additional free Trial of up to 1 year. You should double check this information to determine if maybe the user has overpaid or otherwise needs to be addressed. If you get many of these emails, you should consider adjusting your custom code to avoid these situations.", 'paid-memberships-pro' ) . '</p>';
-				$body .= '<p>' . sprintf( __( 'User: %1$s<br />Email: %2$s<br />Membership Level: %3$s<br />Order #: %4$s<br />Original Profile Start Date: %5$s<br />Adjusted Profile Start Date: %6$s<br />Trial Period: %7$s<br />Trial Frequency: %8$s<br />', 'paid-memberships-pro' ), $order->user->user_nicename, $order->user->user_email, $level->name, $order->code, date( 'c', $original_start_date ), $one_year_out_date, $order->TrialBillingPeriod, $order->TrialBillingFrequency ) . '</p>';
-				$pmproemail->template = 'profile_start_date_limit_check';
-				$pmproemail->subject = sprintf( __( 'Profile Start Date Issue Detected and Fixed at %s', 'paid-memberships-pro' ), get_bloginfo( 'name' ) );
-				$pmproemail->data = array( 'body' => $body );
-				$pmproemail->sendEmail( get_bloginfo( 'admin_email' ) );
-			}
-		}
-	}
-
+	_deprecated_function( __FUNCTION__, '3.2' );
 	return $order;
 }
-add_filter( 'pmpro_subscribe_order', 'pmpro_pmpro_subscribe_order_startdate_limit', 99, 2 );
 
 /**
  * Before changing membership at checkout,
@@ -260,3 +262,16 @@ function pmpro_ignore_checkout_order_when_cancelling_old_orders( $order_ids ) {
 	return $order_ids;
 }
 add_filter( 'pmpro_other_order_ids_to_cancel', 'pmpro_ignore_checkout_order_when_cancelling_old_orders' );
+
+/**
+ * Default the get_option call for pmpro_spam_protection option to '2'.
+ *
+ * @since 2.11
+ *
+ * @param string $default The default value for the option.
+ * @return string The default value for the option.
+ */
+function pmpro_default_option_pmpro_spamprotection( $default ) {
+	return '2';
+}
+add_filter( 'default_option_pmpro_spamprotection', 'pmpro_default_option_pmpro_spamprotection' );

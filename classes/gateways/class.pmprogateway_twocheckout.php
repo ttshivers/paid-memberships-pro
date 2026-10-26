@@ -1,4 +1,8 @@
 <?php
+	if ( ! defined( 'ABSPATH' ) ) {
+		exit;
+	}
+
 	//include pmprogateway
 	require_once(dirname(__FILE__) . "/class.pmprogateway.php");
 
@@ -20,10 +24,9 @@
 			}
 
 			//set API connection vars
-			Twocheckout::sellerId(pmpro_getOption('twocheckout_accountnumber'));
-			Twocheckout::username(pmpro_getOption('twocheckout_apiusername'));
-			Twocheckout::password(pmpro_getOption('twocheckout_apipassword'));
-			Twocheckout::$verifySSL = false;
+			Twocheckout::sellerId(get_option('pmpro_twocheckout_accountnumber'));
+			Twocheckout::username(get_option('pmpro_twocheckout_apiusername'));
+			Twocheckout::password(get_option('pmpro_twocheckout_apipassword'));
 
 			$this->gateway = $gateway;
 			return $this->gateway;
@@ -76,15 +79,12 @@
 		static function getGatewayOptions()
 		{
 			$options = array(
-				'sslseal',
-				'nuclear_HTTPS',
 				'gateway_environment',
 				'twocheckout_apiusername',
 				'twocheckout_apipassword',
 				'twocheckout_accountnumber',
 				'twocheckout_secretword',
 				'currency',
-				'use_ssl',
 				'tax_state',
 				'tax_rate'
 			);
@@ -124,7 +124,7 @@
 		</tr>
 		<tr class="gateway gateway_twocheckout" <?php if($gateway != "twocheckout") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="twocheckout_apiusername"><?php esc_html_e('API Username', 'paid-memberships-pro' );?>:</label>
+				<label for="twocheckout_apiusername"><?php esc_html_e('API Username', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="twocheckout_apiusername" name="twocheckout_apiusername" value="<?php echo esc_attr($values['twocheckout_apiusername'])?>" class="regular-text code" />
@@ -133,7 +133,7 @@
 		</tr>
 		<tr class="gateway gateway_twocheckout" <?php if($gateway != "twocheckout") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="twocheckout_apipassword"><?php esc_html_e('API Password', 'paid-memberships-pro' );?>:</label>
+				<label for="twocheckout_apipassword"><?php esc_html_e('API Password', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="twocheckout_apipassword" name="twocheckout_apipassword" value="<?php echo esc_attr($values['twocheckout_apipassword'])?>" autocomplete="off" class="regular-text code pmpro-admin-secure-key" />
@@ -142,7 +142,7 @@
 		</tr>
 		<tr class="gateway gateway_twocheckout" <?php if($gateway != "twocheckout") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="twocheckout_accountnumber"><?php esc_html_e('Account Number', 'paid-memberships-pro' );?>:</label>
+				<label for="twocheckout_accountnumber"><?php esc_html_e('Account Number', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" name="twocheckout_accountnumber" value="<?php echo esc_attr( $values['twocheckout_accountnumber'] ) ?>" class="regular-text code" />
@@ -151,7 +151,7 @@
 		</tr>
 		<tr class="gateway gateway_twocheckout" <?php if($gateway != "twocheckout") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="twocheckout_secretword"><?php esc_html_e('Secret Word', 'paid-memberships-pro' );?>:</label>
+				<label for="twocheckout_secretword"><?php esc_html_e('Secret Word', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" name="twocheckout_secretword" size="60" value="<?php echo esc_attr( $values['twocheckout_secretword'] ) ?>" />
@@ -160,7 +160,7 @@
 		</tr>
 		<tr class="gateway gateway_twocheckout" <?php if($gateway != "twocheckout") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label><?php esc_html_e('TwoCheckout INS URL', 'paid-memberships-pro' );?>:</label>
+				<label><?php esc_html_e('TwoCheckout INS URL', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<p><?php esc_html_e('To fully integrate with 2Checkout, be sure to use the following for your INS URL and Approved URL', 'paid-memberships-pro' );?></p>
@@ -209,7 +209,7 @@
 			?>
 			<span id="pmpro_submit_span">
 				<input type="hidden" name="submit-checkout" value="1" />
-				<input type="submit" class="<?php echo pmpro_get_element_class( 'pmpro_btn pmpro_btn-submit-checkout', 'pmpro_btn-submit-checkout' ); ?>" value="<?php if($pmpro_requirebilling) { _e('Check Out with 2Checkout', 'paid-memberships-pro' ); } else { _e('Submit and Confirm', 'paid-memberships-pro' );}?> &raquo;" />
+				<input type="submit" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_btn pmpro_btn-submit-checkout', 'pmpro_btn-submit-checkout' ) ); ?>" value="<?php if($pmpro_requirebilling) { esc_html_e('Check Out with 2Checkout', 'paid-memberships-pro' ); } else { esc_html_e('Submit and Confirm', 'paid-memberships-pro' );}?> &raquo;" />
 			</span>
 			<?php
 
@@ -230,6 +230,12 @@
 			if(empty($morder))
 				return;
 
+			// If this isn't a 2Checkout order, bail.
+			if ( 'twocheckout' !== $morder->gateway ) {
+				return;
+			}
+
+
 			$morder->user_id = $user_id;
 			$morder->saveOrder();
 
@@ -237,7 +243,7 @@
 			if(isset($morder->membership_level) && !empty($morder->membership_level->code_id))
 			{
 				$discount_code_id = (int)$morder->membership_level->code_id;
-				$wpdb->query("INSERT INTO $wpdb->pmpro_discount_codes_uses (code_id, user_id, order_id, timestamp) VALUES('" . $discount_code_id . "', '" . $user_id . "', '" . $morder->id . "', now())");
+				$wpdb->query( $wpdb->prepare( "INSERT INTO $wpdb->pmpro_discount_codes_uses (code_id, user_id, order_id, timestamp) VALUES(%d, %d, %d, now())", $discount_code_id, $user_id, $morder->id ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Writes to a PMPro custom table with no WordPress API.
 			}
 			do_action("pmpro_before_send_to_twocheckout", $user_id, $morder);
 
@@ -255,7 +261,6 @@
 
 			//clean up a couple values
 			$order->payment_type = "2CheckOut";
-			$order->CardType = "";
 			$order->cardtype = "";
 
 			//just save, the user will go to 2checkout to pay
@@ -270,7 +275,7 @@
 			global $pmpro_currency;
 
 			$tco_args = array(
-				'sid' => pmpro_getOption("twocheckout_accountnumber"),
+				'sid' => get_option("pmpro_twocheckout_accountnumber"),
 				'mode' => '2CO', // will always be 2CO according to docs (@see https://www.2checkout.com/documentation/checkout/parameter-sets/pass-through-products/)
 				'li_0_type' => 'product',
 				'li_0_name' => substr($order->membership_level->name . " at " . get_bloginfo("name"), 0, 127),
@@ -281,7 +286,7 @@
 				'currency_code' => $pmpro_currency,
 				'pay_method' => 'CC',
 				'purchase_step' => 'billing-information',
-				'x_receipt_link_url' => admin_url("admin-ajax.php") . "?action=twocheckout-ins" //pmpro_url("confirmation", "?level=" . $order->membership_level->id)
+				'x_receipt_link_url' => admin_url("admin-ajax.php") . "?action=twocheckout-ins" //pmpro_url("confirmation", "?pmpro_level=" . $order->membership_level->id)
 			);
 
 			//taxes on initial amount
@@ -315,7 +320,7 @@
 
 			// Demo mode?
 			if(empty($order->gateway_environment))
-				$gateway_environment = pmpro_getOption("gateway_environment");
+				$gateway_environment = get_option("pmpro_gateway_environment");
 			else
 				$gateway_environment = $order->gateway_environment;
 			if("sandbox" === $gateway_environment || "beta-sandbox" === $gateway_environment)
@@ -356,7 +361,7 @@
 			$tco_url = 'https://www.2checkout.com/checkout/purchase' . $ptpStr;
 
 			//redirect to 2checkout
-			wp_redirect( $tco_url );
+			wp_redirect( $tco_url ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect -- Redirects to the 2Checkout purchase URL (offsite by design).
 			exit;
 		}
 
@@ -374,7 +379,7 @@
 
 			// Demo mode?
 			if(empty($order->gateway_environment))
-				$gateway_environment = pmpro_getOption("gateway_environment");
+				$gateway_environment = get_option("pmpro_gateway_environment");
 			else
 				$gateway_environment = $order->gateway_environment;
 

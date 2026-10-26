@@ -3,9 +3,14 @@
 	Code related to HTTPS/SSL
 */
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Check if we have set the $isapage variable,
  * and if so prevents WP from sending a 404.
+ * @since 2.10 This is only used by the services/getfile.php script now.
  */
 function pmpro_status_filter( $s ) {
 	global $isapage;
@@ -56,15 +61,15 @@ function pmpro_besecure() {
 
 	$besecure = apply_filters( 'pmpro_besecure', $besecure );
 
-	$use_ssl = pmpro_getOption( 'use_ssl' );
-	if( $use_ssl == 1 ) {
+	$use_ssl = get_option( 'pmpro_use_ssl' );
+	if( $use_ssl == 1 && isset( $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] ) ) {
 		if( $besecure && ( empty( $_SERVER['HTTPS'] ) || $_SERVER['HTTPS'] == 'off' || $_SERVER['HTTPS'] == 'false' ) ) {
 			//need to be secure		
-			wp_safe_redirect( 'https://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] );
+			wp_safe_redirect( 'https://' . wp_unslash( $_SERVER['HTTP_HOST'] ) . wp_unslash( $_SERVER['REQUEST_URI'] ) );
 			exit;
 		} elseif ( ! $besecure && ! empty( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] != 'off' && $_SERVER['HTTPS'] != 'false' ) {
 			//don't need to be secure		
-			wp_safe_redirect('http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] );
+			wp_safe_redirect('http://' . wp_unslash( $_SERVER['HTTP_HOST'] ) . wp_unslash( $_SERVER['REQUEST_URI'] ) );
 			exit;
 		}	
 	}
@@ -78,7 +83,7 @@ add_action( 'login_init', 'pmpro_besecure', 2 );
  */
 function pmpro_ssl_javascript_redirect() {
 	global $besecure;
-	$use_ssl = pmpro_getOption( 'use_ssl' );
+	$use_ssl = get_option( 'pmpro_use_ssl' );
 	if( ! is_admin() && $use_ssl == 2 ) {
 		if( ! empty( $besecure ) ) {
 		?>
@@ -107,6 +112,7 @@ function pmpro_check_site_url_for_https( $besecure = NULL ) {
 
 	//need to get this from the database because we filter get_option
 	if( empty( $pmpro_siteurl ) ) {
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Intentionally reads the raw siteurl option, bypassing the get_option() filter; result is stored in a global.
 		$pmpro_siteurl = $wpdb->get_var( "SELECT option_value FROM $wpdb->options WHERE option_name = 'siteurl' LIMIT 1" );
 	}
 	
@@ -121,11 +127,12 @@ add_filter( 'pmpro_besecure', 'pmpro_check_site_url_for_https' );
 
 //capturing case where a user links to https admin without admin over https
 function pmpro_admin_https_handler() {
-	if( ! empty( $_SERVER['HTTPS'] ) ) {
-		if( $_SERVER['HTTPS'] && strtolower( $_SERVER['HTTPS'] ) != 'off' && strtolower( $_SERVER['HTTPS'] ) != 'false' && is_admin() ) {
-			if( substr( get_option( 'siteurl' ), 0, 5 ) == 'http:' && ! force_ssl_admin() ) {
+	if ( ! empty( $_SERVER['HTTPS'] ) ) {
+		$https = sanitize_text_field( wp_unslash( $_SERVER['HTTPS'] ) );
+		if( strtolower( $https ) != 'off' && strtolower( $https ) != 'false' && is_admin() ) {
+			if( substr( get_option( 'siteurl' ), 0, 5 ) == 'http:' && ! force_ssl_admin() && isset( $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] ) ) {
 				//need to redirect to non https
-				wp_safe_redirect( 'http://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'] );
+				wp_safe_redirect( esc_url_raw( 'http://' . wp_unslash( $_SERVER['HTTP_HOST'] ) . wp_unslash( $_SERVER['REQUEST_URI'] ) ) );
 				exit;
 			}
 		}
@@ -138,7 +145,7 @@ add_action( 'init', 'pmpro_admin_https_handler' );
 */
 function pmpro_NuclearHTTPS() {
 	//did they choose the option?
-	$nuking = pmpro_getOption( 'nuclear_HTTPS' );
+	$nuking = get_option( 'pmpro_nuclear_HTTPS' );
 	if(!empty($nuking)) {
 		ob_start( 'pmpro_replaceURLsInBuffer' );
 	}

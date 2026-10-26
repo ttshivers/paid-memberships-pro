@@ -48,6 +48,7 @@ class PMPro_Wisdom_Integration {
 		'pmpro-discountcodes'    => true,
 		'pmpro-pagesettings'     => true,
 		'pmpro-paymentsettings'  => true,
+		'pmpro-securitysettings' => true,
 		'pmpro-emailsettings'    => true,
 		'pmpro-emailtemplates'   => true,
 		'pmpro-advancedsettings' => true,
@@ -130,7 +131,7 @@ class PMPro_Wisdom_Integration {
 	 */
 	public function sync_wisdom_setting_to_plugin( $old_value, $value ) {
 		$opt_out = ! empty( $value[ $this->plugin_slug ] ) ? 0 : 1;		
-		pmpro_setOption( $this->plugin_option, $opt_out );
+		update_option( $this->plugin_option, $opt_out );
 	}
 
 	/**
@@ -169,8 +170,8 @@ class PMPro_Wisdom_Integration {
 	 * @return bool Whether the site is recognized as a local site.
 	 */
 	public function bypass_local_tracking( $is_local = false ) {
-		if ( true === $is_local || 'production' !== wp_get_environment_type() ) {
-			return $is_local;
+		if ( true === $is_local || ( function_exists( 'wp_get_environment_type' ) && 'production' !== wp_get_environment_type() ) ) {
+			return true;
 		}
 
 		$url = network_site_url( '/' );
@@ -178,9 +179,14 @@ class PMPro_Wisdom_Integration {
 		$url       = strtolower( trim( $url ) );
 		$url_parts = parse_url( $url );
 		$host      = ! empty( $url_parts['host'] ) ? $url_parts['host'] : false;
+		$port      = ! empty( $url_parts['port'] ) ? $url_parts['port'] : false;
 
 		if ( empty( $host ) ) {
 			return $is_local;
+		}
+
+		if( 8888 === $port ){
+			return true;
 		}
 
 		if ( 'localhost' === $host ) {
@@ -191,20 +197,83 @@ class PMPro_Wisdom_Integration {
 			return true;
 		}
 
-		$tlds_to_check = [
-			'.local',
-			'.test',
-		];
+		if (
+			// localhost and environment labels (staging., stage-2., dev1., test.)
+			$this->host_has_environment_prefix( $host ) ||
 
-		foreach ( $tlds_to_check as $tld ) {
-			$minus_tld = strlen( $host ) - strlen( $tld );
+			// local tlds
+			$this->host_ends_with( $host, '.test' ) ||
+			$this->host_ends_with( $host, '.local' ) ||
 
-			if ( $minus_tld === strpos( $host, $tld ) ) {
-				return true;
-			}
+			// common testing/staging tlds and third party hosts
+			$this->host_ends_with( $host, '.bigscoots-staging.com' ) ||
+			$this->host_ends_with( $host, '.closte.com' ) ||
+			$this->host_ends_with( $host, '.cloudwaysapp.com' ) ||
+			$this->host_ends_with( $host, '.e.wpstage.net' ) ||
+			$this->host_ends_with( $host, '.kinsta.cloud' ) ||
+			$this->host_ends_with( $host, '.onrocket.site' ) ||
+			$this->host_ends_with( $host, '.pantheonsite.io' ) ||
+			$this->host_ends_with( $host, '.pressdns.com' ) ||
+			$this->host_ends_with( $host, '.runcloud.link' ) ||
+			$this->host_ends_with( $host, '.servebolt.com' ) ||
+			$this->host_ends_with( $host, '.sg-host.com' ) ||
+			$this->host_ends_with( $host, '.stacks.run' ) ||
+			$this->host_ends_with( $host, '.wpengine.com' )
+		) {
+			return true;
 		}
 
 		return $is_local;
+	}
+
+	/**
+	 * Check whether a hostname starts with an environment label.
+	 *
+	 * "staging" counts as a bare prefix. localhost, dev, stage, test, and testing need a dot,
+	 * dash, or digit after them so brand names like stagecoach.com or devon.org stay production.
+	 *
+	 * @since TBD
+	 *
+	 * @param string $host Lowercased hostname without port or trailing dot.
+	 *
+	 * @return bool Whether the hostname starts with an environment label.
+	 */
+	protected function host_has_environment_prefix( $host ) {
+		return (bool) preg_match( '/^staging|^localhost(?:\.|$)|^(?:dev|stage|test|testing)(?:[.-]|\d+(?:[.-]|$)|$)/', $host );
+	}
+
+	/**
+	 * PHP8.0 str_starts_with() polyfill.
+	 *
+	 * @param string $haystack
+	 * @param string $needle
+	 *
+	 * @return bool
+	 */
+	protected function host_starts_with( $haystack, $needle ) {
+		return 0 === strncmp( $haystack, $needle, \strlen( $needle ) );
+	}
+
+	/**
+	 * PHP8.0 str_starts_with() polyfill.
+	 *
+	 * @param string $haystack
+	 * @param string $needle
+	 *
+	 * @return bool
+	 */
+	protected function host_ends_with( $haystack, $needle ) {
+		if ( '' === $needle || $needle === $haystack ) {
+			return true;
+		}
+
+		if ( '' === $haystack ) {
+			return false;
+		}
+
+		$needleLength = \strlen( $needle );
+
+		return $needleLength <= \strlen( $haystack ) && 0 === substr_compare( $haystack, $needle, - $needleLength );
 	}
 
 	/**
@@ -226,7 +295,7 @@ class PMPro_Wisdom_Integration {
 	 * @since 2.8
 	 */
 	public function remove_wisdom_notices_from_non_plugin_screens() {
-		$settings_page = ! empty( $_GET['page'] ) ? sanitize_text_field( $_GET['page'] ) : '';
+		$settings_page = ! empty( $_GET['page'] ) ? sanitize_text_field( wp_unslash( $_GET['page'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only; only used to decide which admin notices to show.
 
 		// Check if we are on a settings page using isset() which is faster than in_array().
 		if ( isset( $this->plugin_pages[ $settings_page ] ) ) {
@@ -262,6 +331,9 @@ class PMPro_Wisdom_Integration {
 		$stats['plugin_options_fields']['pmpro_license_key']  = get_option( 'pmpro_license_key', 'No Value' );
 		$stats['plugin_options_fields']['pmpro_license_plan'] = $license_plan;
 
+		// Hosting info.
+		$stats['plugin_options_fields']['pmpro_hosting'] = defined( 'PMPRO_HOSTING_IS_MU_PLUGIN' ) && PMPRO_HOSTING_IS_MU_PLUGIN ? 'yes' : 'no';
+
 		// Gateway info.
 		$stats['plugin_options_fields'] = array_merge( $stats['plugin_options_fields'], $this->get_gateway_info() );
 
@@ -277,7 +349,7 @@ class PMPro_Wisdom_Integration {
 		$stats['plugin_options_fields']['pmpro_members_cancelled_count'] = pmpro_getCancellations( 'all time' );
 
 		// Orders info.
-		$stats['plugin_options_fields']['pmpro_orders_count'] = $wpdb->get_var( "SELECT COUNT(*) FROM `{$wpdb->pmpro_membership_orders}`" );
+		$stats['plugin_options_fields']['pmpro_orders_count'] = $wpdb->get_var( "SELECT COUNT(*) FROM `{$wpdb->pmpro_membership_orders}`" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Counts rows in the PMPro orders custom table, which has no WordPress API or object cache layer.
 
 		// Features.
 		$stats['plugin_options_fields']['pmpro_hide_toolbar']  = get_option( 'pmpro_hide_toolbar', 'No Value' );
@@ -293,12 +365,6 @@ class PMPro_Wisdom_Integration {
 		$stats['plugin_options_fields']['pmpro_only_filter_pmpro_emails'] = get_option( 'pmpro_only_filter_pmpro_emails', 'No Value' );
 		$stats['plugin_options_fields']['pmpro_email_member_notification'] = get_option( 'pmpro_email_member_notification', 'No Value' );
 		$stats['plugin_options_fields']['pmpro_use_ssl'] = get_option( 'pmpro_pmpro_use_ssl', 'No Value' );
-		$ssl_seal = get_option( 'pmpro_sslseal', '' );
-		if ( ! empty( $ssl_seal ) ) {
-			$stats['plugin_options_fields']['pmpro_sslseal'] = 'Yes';
-		} else {
-			$stats['plugin_options_fields']['pmpro_sslseal'] = 'No';
-		}
 		$stats['plugin_options_fields']['pmpro_nuclear_HTTPS'] = get_option( 'pmpro_nuclear_HTTPS', 'No Value' );
 
 		// Add Ons.
@@ -336,18 +402,23 @@ class PMPro_Wisdom_Integration {
 
 		// Get Stripe gateway info for other stats below.
 		$stripe_using_legacy_keys       = PMProGateway_stripe::using_legacy_keys();
+		$stripe_using_api_keys          = PMProGateway_stripe::using_api_keys();
 		$stripe_has_connect_credentials = PMProGateway_stripe::has_connect_credentials( 'live' ) || PMProGateway_stripe::has_connect_credentials( 'sandbox' );
 
 		// Append the Stripe gateway qualifiers.
 		if ( 'stripe' === $stats['pmpro_gateway'] ) {
 			// Add Legacy Keys text if using Legacy Keys.
 			if ( $stripe_using_legacy_keys ) {
-				$stats['pmpro_gateway'] .= ' (' . __( 'Legacy Keys', 'paid-memberships-pro' ) . ')';
+				$stats['pmpro_gateway'] .= ' (Legacy Keys)';
+			}
+
+			if ( $stripe_using_api_keys ) {
+				$stats['pmpro_gateway'] .= ' (API Keys)';
 			}
 
 			// Add Stripe Connect text if using Stripe Connect.
 			if ( $stripe_has_connect_credentials ) {
-				$stats['pmpro_gateway'] .= ' (' . __( 'Stripe Connect', 'paid-memberships-pro' ) . ')';
+				$stats['pmpro_gateway'] .= ' (Stripe Connect)';
 			}
 
 			$stats['pmpro_gateway'] = strtolower( $stats['pmpro_gateway'] );
@@ -359,10 +430,10 @@ class PMPro_Wisdom_Integration {
 			'braintree'      => get_option( 'pmpro_braintree_merchantid' ),
 			'cybersource'    => get_option( 'pmpro_cybersource_merchantid' ),
 			'payflowpro'     => get_option( 'pmpro_payflow_user' ),
-			'paypal'         => get_option( 'pmpro_apiusername' ),
+			'paypalwpp'      => get_option( 'pmpro_apiusername' ),
 			'paypalexpress'  => get_option( 'paypalexpress_skip_confirmation' ),
 			'paypalstandard' => get_option( 'gateway_email' ),
-			'stripe'         => $stripe_using_legacy_keys || $stripe_has_connect_credentials,
+			'stripe'         => $stripe_using_legacy_keys || $stripe_using_api_keys || $stripe_has_connect_credentials,
 			'stripe_sandbox' => get_option( 'sandbox_stripe_connect_user_id' ),
 			'twocheckout'    => get_option( 'twocheckout_accountnumber' ),
 		];
@@ -415,7 +486,7 @@ class PMPro_Wisdom_Integration {
 			$level_data->subscription_delay  = get_option( 'pmpro_subscription_delay_' . $level_id , '' );
 
 			// Add if a category is set.
-			$categories = $wpdb->get_col(
+			$categories = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Queries the PMPro memberships_categories custom table, which has no WordPress API or object cache layer.
 				$wpdb->prepare(
 					"SELECT category_id
 					FROM $wpdb->pmpro_memberships_categories
@@ -447,7 +518,7 @@ class PMPro_Wisdom_Integration {
 	 */
 	public function get_addons_info() {
 		// Build the list of Add Ons data to track.
-		$addons      = pmpro_getAddons();
+		$addons      = PMPro_AddOns::instance()->get_addons();
 		$plugin_info = get_site_transient( 'update_plugins' );
 
 		// Split Add Ons into groups for filtering

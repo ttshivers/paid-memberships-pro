@@ -1,5 +1,9 @@
 <?php
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Check if certain plugins or themes are installed and activated
  * and if found dynamically load the relevant /includes/compatibility/ files.
@@ -45,6 +49,41 @@ function pmpro_compatibility_checker() {
 			'file'        => 'jetpack.php',
 			'check_type'  => 'class',
 			'check_value' => 'Jetpack',
+		],
+		[
+			'file' 		  => 'avada.php',
+			'check_type'  => 'constant',
+			'check_value' => 'FUSION_BUILDER_VERSION'
+		],
+		[
+			'file' 		  => 'oxygen-builder.php',
+			'check_type'  => 'class',
+			'check_value' => 'OxyEl'
+		],
+		[
+			'file'		  => 'lifterlms.php',
+			'check_type'  => 'function',
+			'check_value' => 'llms'
+		],
+		[
+			'file'		  => 'buddypress.php',
+			'check_type'  => 'class',
+			'check_value' => 'BuddyPress' //BuddyBoss uses this class, too.
+		],
+		[
+			'file'        => 'bluehost-wordpress-plugin.php',
+			'check_type'  => 'constant',
+			'check_value' => 'BLUEHOST_PLUGIN_VERSION',
+		],
+		[
+			'file'        => 'wp-fusion-lite.php',
+			'check_type'  => 'class',
+			'check_value' => 'WP_Fusion_Lite',
+		],
+		[
+			'file'			=> 'pantheon.php',
+			'check_type'	=> 'function',
+			'check_value'	=> 'pantheon_wp_env',
 		],
 	];
 
@@ -102,6 +141,11 @@ function pmpro_compatibility_checker_themes(){
 			'file' => 'divi.php',
 			'check_type' => 'constant',
 			'check_value' => 'ET_BUILDER_THEME' //Adds support for the Divi theme.
+		),
+		array(
+			'file' => 'bricks.php',
+			'check_type' => 'class',
+			'check_value' => 'Bricks\Conditions'
 		)
 	);
 
@@ -124,7 +168,12 @@ add_action( 'after_setup_theme', 'pmpro_compatibility_checker_themes' );
  *
  * @since 2.8
  */
-function pmpro_track_library_conflict( $name, $path, $version ) {	
+function pmpro_track_library_conflict( $name, $path, $version ) {
+	// Normalize the path so the conflict check and stored array key are stable across operating systems.
+	// On Windows, dirname() returns backslashes, which would otherwise break the substring check below
+	// and cause duplicate entries to be stored under separator-variant keys.
+	$path = wp_normalize_path( $path );
+
 	// Ignore when PMPro is trying to load.
 	if ( strpos( $path, '/plugins/paid-memberships-pro/' ) !== false ) {
 		return;
@@ -156,6 +205,28 @@ function pmpro_track_library_conflict( $name, $path, $version ) {
 
 	// Update the library conflict information.
 	$library_conflicts[ $name ][ $path ]['version']   = $version;
-	$library_conflicts[ $name ][ $path ]['timestamp'] = $now;	
+	$library_conflicts[ $name ][ $path ]['timestamp'] = $now;
+
+	// Cleanup.
+	$seven_days_ago = strtotime( '-7 days' );
+	foreach ( $library_conflicts as $lib_name => $paths ) {
+		// If no paths, remove the library entry.
+		if ( empty( $paths ) ) {
+			unset( $library_conflicts[ $lib_name ] );
+			continue;
+		}
+		// Check each path's timestamp. If older than 7 days, remove it.
+		foreach ( $paths as $lib_path => $info ) {
+			if ( ! empty( $info['timestamp'] ) && ( strtotime( $info['timestamp'] ) < $seven_days_ago ) ) {
+				unset( $library_conflicts[ $lib_name ][ $lib_path ] );
+			}
+		}
+
+		// If all paths were removed, clean up the library entry.
+		if ( empty( $library_conflicts[ $lib_name ] ) ) {
+			unset( $library_conflicts[ $lib_name ] );
+		}
+	}
+	
 	update_option( 'pmpro_library_conflicts', $library_conflicts, false );
 }

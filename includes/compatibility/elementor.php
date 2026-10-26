@@ -1,8 +1,11 @@
 <?php
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 // Include custom settings to restrict Elementor widgets.
 require_once( 'elementor/class-pmpro-elementor.php' );
-
 
 /**
  * Elementor Compatibility
@@ -21,8 +24,10 @@ function pmpro_elementor_compatibility() {
 
 /**
  * Get all available levels for elementor widget setting.
- * @return array Associative array of level ID and name.
+ * 
  * @since 2.2.6
+ * 
+ * @return array Associative array of level ID and name.
  */
 function pmpro_elementor_get_all_levels() {
 
@@ -47,9 +52,82 @@ function pmpro_elementor_get_all_levels() {
 }
 add_action( 'plugins_loaded', 'pmpro_elementor_compatibility', 15 );
 
-
-
+/**
+ * Delete the levels array caching whenever a new membership level is created or updated.
+ *
+ * @since 2.5.9.1
+ * 
+ * @param int $level_id The membership level ID that we are saving.
+ */
 function pmpro_elementor_clear_level_cache( $level_id ) {
 	delete_transient( 'pmpro_elementor_levels_cache' );
 }
 add_action( 'pmpro_save_membership_level', 'pmpro_elementor_clear_level_cache' );
+
+
+/**
+ * Add compatibility for the Elementor Caching to avoid caching any dynamic content based on Paid Memberships Pro compatibility.
+ *
+ * @since 2.6.0
+ * 
+ * @param bool $is_dynamic_content Whether the content is dynamic or not.
+ * @param array $element_raw_data The element's raw data.
+ * @param object $element_instance The element's instance.
+ * 
+ * @return bool.
+ */
+function pmpro_elementor_is_dynamic_content( $is_dynamic_content, $element_raw_data, $element_instance ) {
+
+	// If it's already dynamic content, bail.
+	if ( $is_dynamic_content ) {
+		return $is_dynamic_content;
+	}
+
+	// If we detect that PMPro enabled option is set, let's make it dynamic content.
+	if ( isset( $element_raw_data['settings']['pmpro_enable'] ) ) {
+		$pmpro_enable = $element_raw_data['settings']['pmpro_enable'];
+		if ( is_array( $pmpro_enable ) && isset( $pmpro_enable['$$type'] ) && array_key_exists( 'value', $pmpro_enable ) ) {
+			$pmpro_enable = $pmpro_enable['value'];
+		}
+
+		if ( ! empty( $pmpro_enable ) && 'no' !== $pmpro_enable ) {
+			return true;
+		}
+	}
+
+	if ( ! empty( $element_raw_data['settings'] ) ) {
+		$settings_to_check = array_values( $element_raw_data['settings'] );
+		while ( ! empty( $settings_to_check ) ) {
+			$setting = array_pop( $settings_to_check );
+			if ( is_array( $setting ) && isset( $setting['$$type'] ) && array_key_exists( 'value', $setting ) ) {
+				$setting = $setting['value'];
+			}
+
+			// Look for an embedded PMPro shortcode (e.g. [pmpro_member], [pmpro_account]) so the element
+			// isn't statically cached. We match the shortcode opener specifically rather than any "pmpro"
+			// substring, so that an unrelated CSS class or URL containing "pmpro" doesn't needlessly
+			// disable caching. Restriction settings themselves are already handled by the pmpro_enable
+			// check above.
+			if ( is_string( $setting ) && str_contains( $setting, '[pmpro' ) ) {
+				return true;
+			}
+
+			if ( is_array( $setting ) ) {
+				$settings_to_check = array_merge( $settings_to_check, array_values( $setting ) );
+			}
+		}
+	}
+
+	// Check Elementor text editor for 'pmpro' string.
+	if ( ! empty( $element_raw_data['settings']['editor'] ) && is_string( $element_raw_data['settings']['editor'] ) && str_contains( $element_raw_data['settings']['editor'], 'pmpro' ) ) {
+		return true;
+	}
+
+	// Check if Elementor shortcode widget has a PMPro shortcode.
+	if ( ! empty( $element_raw_data['settings']['shortcode'] ) && is_string( $element_raw_data['settings']['shortcode'] ) && str_contains( $element_raw_data['settings']['shortcode'], 'pmpro' ) ) {
+		return true;
+	}
+
+	return $is_dynamic_content;
+}
+add_filter( 'elementor/element/is_dynamic_content', 'pmpro_elementor_is_dynamic_content', 10, 3 );

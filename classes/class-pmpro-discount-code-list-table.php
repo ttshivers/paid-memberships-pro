@@ -1,0 +1,750 @@
+<?php
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- List table queries against PMPro custom tables, which have no WordPress API or object cache layer.
+
+if ( ! class_exists( 'WP_List_Table' ) ) {
+	require_once ABSPATH . 'wp-admin/includes/class-wp-list-table.php';
+}
+
+class PMPro_Discount_Code_List_Table extends WP_List_Table {
+	/**
+	 * The text domain of this plugin.
+	 *
+	 * @since 2.11
+	 *
+	 * @access   private
+	 * @var      string    $plugin_text_domain    The text domain of this plugin.
+	 */
+	protected $plugin_text_domain;
+
+	/**
+	 * Call the parent constructor to override the defaults $args
+	 *
+	 * @param string $plugin_text_domain    Text domain of the plugin.
+	 *
+	 * @since 2.11
+	 */
+	public function __construct() {
+
+		$this->plugin_text_domain = 'paid-memberships-pro';
+
+		parent::__construct(
+			array(
+				'plural'   => 'discount codes',
+				// Plural value used for labels and the objects being listed.
+				'singular' => 'discount code',
+				// Singular label for an object being listed, e.g. 'post'.
+				'ajax'     => false,
+				// If true, the parent class will call the _js_vars() method in the footer
+			)
+		);
+	}
+
+	/**
+	 * Sets up screen options for the discount codes list table.
+	 *
+	 * @since 3.0
+	 */
+	public static function hook_screen_options() {
+		$list_table = new PMPro_Discount_Code_List_Table();
+		add_screen_option(
+			'per_page',
+			array(
+				'default' => 20,
+				'label'   => __( 'Discount codes per page', 'paid-memberships-pro' ),
+				'option'  => 'pmpro_discount_codes_per_page',
+			)
+		);
+		add_filter(
+			'screen_settings',
+			array(
+				$list_table,
+				'screen_controls',
+			),
+			10,
+			2
+		);
+		add_filter(
+			'set-screen-option',
+			array(
+				$list_table,
+				'set_screen_option',
+			),
+			10,
+			3
+		);
+		set_screen_options();
+	}
+
+	/**
+	 * Sets the screen options.
+	 *
+	 * @param string $dummy   Unused.
+	 * @param string $option  Screen option name.
+	 * @param string $value   Screen option value.
+	 * @return string
+	 */
+	public function set_screen_option( $dummy, $option, $value ) {
+		if ( 'pmpro_discount_codes_per_page' === $option ) {
+			return $value;
+		} else {
+			return $dummy;
+		}
+	}
+
+	/**
+	 * Prepares the list of items for displaying.
+	 *
+	 * Query, filter data, handle sorting, and pagination, and any other data-manipulation required prior to rendering
+	 *
+	 * @since 2.11
+	 */
+	public function prepare_items() {
+		
+		$columns = $this->get_columns();
+        $hidden = $this->get_hidden_columns();
+        $sortable = $this->get_sortable_columns();
+
+		$this->_column_headers = array($columns, $hidden, $sortable);
+
+		$this->items = $this->sql_table_data();
+
+		$items_per_page = $this->get_items_per_page( 'pmpro_discount_codes_per_page' );
+		$total_items = $this->sql_table_data( true );
+		$this->set_pagination_args(
+			array(
+				'total_items' => $total_items,
+				'per_page'    => $items_per_page,
+				'total_pages' => ceil( $total_items / $items_per_page ),
+			)
+		);
+		
+	}
+
+	/**
+	 * Get a list of columns.
+	 *
+	 * The format is: 'internal-name' => 'Title'
+	 *
+	 * @since 2.11
+	 *
+	 * @return array
+	 */
+	public function get_columns() {
+
+		$columns = array(
+            'id'        => __( 'ID', 'paid-memberships-pro' ),
+			//We cant use 'code' as is because it formats the column as code
+			'discount_code' => __( 'Code', 'paid-memberships-pro' ),
+			'starts'    => __( 'Starts', 'paid-memberships-pro' ),
+			'expires'   => __( 'Expires', 'paid-memberships-pro' ),
+            'uses'      => __( 'Uses', 'paid-memberships-pro' ),
+			'levels'      => __( 'Levels', 'paid-memberships-pro' ),
+		);
+
+		// Re-implementing old hook, will be deprecated.
+		ob_start();
+		do_action( 'pmpro_discountcodes_extra_cols_header' );
+		$extra_cols = ob_get_clean();
+		preg_match_all( '/<th>(.*?)<\/th>/s', $extra_cols, $matches );
+		$custom_field_num = 0;
+		foreach ( $matches[1] as $match ) {
+			$columns[ 'custom_field_' . $custom_field_num ] = $match;
+			$custom_field_num++;
+		}
+
+		// Shortcut for editing columns in default discount code list location.
+		$current_screen = get_current_screen();
+		if ( ! empty( $current_screen ) && strpos( $current_screen->id, "pmpro-discountcodes" ) !== false ) {
+			$columns = apply_filters( 'pmpro_manage_discountcodes_columns', $columns );
+		}
+
+
+		return $columns;
+	}
+
+	/**
+	 * Define which columns are hidden
+	 *
+	 * @return Array
+	 */
+	public function get_hidden_columns() {
+		$user = wp_get_current_user();
+ 		if ( ! $user ) {
+ 			return array();
+ 		}
+
+ 		// Check whether the current user has changed screen options or not.
+ 		$hidden = get_user_meta( $user->ID, 'manage' . $this->screen->id . 'columnshidden', true );
+
+ 		// If user meta is not found, add the default hidden columns.
+ 		// Right now, we don't have any default hidden columns.
+ 		if ( ! $hidden ) {
+ 			$hidden = array();
+ 			update_user_meta( $user->ID, 'manage' . $this->screen->id . 'columnshidden', $hidden );
+ 		}
+
+ 		return $hidden;
+	}
+
+	/**
+	 * Get a list of sortable columns. The format is:
+	 * 'internal-name' => 'orderby'
+	 * or
+	 * 'internal-name' => array( 'orderby', true )
+	 *
+	 * The second format will make the initial sorting order be descending
+	 *
+	 * @since 2.11
+	 *
+	 * @return array
+	 */
+	protected function get_sortable_columns() {
+		/**
+		 * actual sorting still needs to be done by prepare_items.
+		 * specify which columns should have the sort icon.
+		 *
+		 * key => value
+		 * column name_in_list_table => columnname in the db
+		 */
+		$sortable_columns = array(
+			'id' => array( 'id', true ),
+			'discount_code' => array( 'code', false ),
+			'starts' => array( 'starts', false ),
+			'expires' => array( 'expires', false ),
+			'uses' => array( 'used', false ),
+		);
+		
+		return $sortable_columns;
+	}
+
+	/**
+	 * Text displayed when no user data is available
+	 *
+	 * @since 2.11
+	 *
+	 * @return void
+	 */
+	public function no_items() {
+			
+		esc_html_e( 'No discount codes found.', 'paid-memberships-pro' );
+
+	}
+
+	/**
+	 * Get the table data
+	 *
+	 * @return Array|integer if $count parameter = true
+	 */
+	private function sql_table_data( $count = false ) {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Read-only: request vars are only used for list table search, sorting, pagination and building row action links.
+
+		global $wpdb;
+
+		if( isset( $_REQUEST['s'] ) ) {
+			$s = trim( sanitize_text_field( wp_unslash( $_REQUEST['s'] ) ) );
+		} else {
+			$s = '';
+		}
+
+		// some vars for pagination
+		if( isset( $_REQUEST['paged'] ) ) {
+			$pn = intval( $_REQUEST['paged'] );
+		} else {
+			$pn = 1;
+		}
+		
+		$limit = $this->get_items_per_page( 'pmpro_discount_codes_per_page' );
+
+		$end = $pn * $limit;
+		$start = $end - $limit;
+
+		if ( $count ) {
+			$sqlQuery = "SELECT COUNT( DISTINCT id ) FROM $wpdb->pmpro_discount_codes as do ";
+		} else {
+			//Includes uses for each discount code as 'used' so we can sort by it later
+			$sqlQuery = "SELECT *, UNIX_TIMESTAMP(CONVERT_TZ(starts, '+00:00', @@global.time_zone)) as starts, UNIX_TIMESTAMP(CONVERT_TZ(expires, '+00:00', @@global.time_zone)) as expires, (SELECT COUNT(*) FROM $wpdb->pmpro_discount_codes_uses WHERE code_id = do.id) as used FROM $wpdb->pmpro_discount_codes as do ";
+		}
+
+		// Build filter conditions. Multiple filters are combined with AND.
+		$conditions = array();
+
+		if ( ! empty( $s ) ) {
+			$conditions[] = "do.code LIKE '%" . esc_sql( $s ) . "%'";
+		}
+
+		// Status filter. Compared against the site's current date to match checkout.
+		$today  = current_time( 'Y-m-d' );
+		$status = isset( $_REQUEST['status'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['status'] ) ) : '';
+		if ( 'current' === $status ) {
+			$conditions[] = $wpdb->prepare( 'do.starts <= %s AND do.expires >= %s', $today, $today );
+		} elseif ( 'upcoming' === $status ) {
+			$conditions[] = $wpdb->prepare( 'do.starts > %s', $today );
+		} elseif ( 'expired' === $status ) {
+			// Codes that haven't started yet are Upcoming, even if their expiration date has passed, matching checkout.
+			$conditions[] = $wpdb->prepare( 'do.expires < %s AND do.starts <= %s', $today, $today );
+		}
+
+		// Usage filter. "Used" includes codes that are used up. A code with a uses limit of 0 is unlimited and is never used up, matching checkout.
+		$usage      = isset( $_REQUEST['usage'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['usage'] ) ) : '';
+		$uses_count = "( SELECT COUNT(*) FROM $wpdb->pmpro_discount_codes_uses WHERE code_id = do.id )";
+		if ( 'unused' === $usage ) {
+			$conditions[] = "$uses_count = 0";
+		} elseif ( 'used' === $usage ) {
+			$conditions[] = "$uses_count > 0";
+		} elseif ( 'used_up' === $usage ) {
+			$conditions[] = "do.uses > 0 AND $uses_count >= do.uses";
+		}
+
+		// Level filter.
+		$level = isset( $_REQUEST['level'] ) ? intval( $_REQUEST['level'] ) : 0;
+		if ( ! empty( $level ) ) {
+			$conditions[] = $wpdb->prepare( "do.id IN ( SELECT code_id FROM $wpdb->pmpro_discount_codes_levels WHERE level_id = %d )", $level ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Only interpolates a $wpdb table name.
+		}
+
+		if ( ! empty( $conditions ) ) {
+			$sqlQuery .= 'WHERE ' . implode( ' AND ', $conditions ) . ' ';
+		}
+
+		if ( ! $count ) {
+
+			if( isset( $_REQUEST['orderby'] ) ) {
+				$orderby = $this->sanitize_orderby( sanitize_text_field( wp_unslash( $_REQUEST['orderby'] ) ) );
+			} else {
+				$orderby = 'id';
+			}
+
+			if( isset( $_REQUEST['order'] ) && $_REQUEST['order'] == 'asc' ) {
+				$order = 'ASC';
+			} else {
+				$order = 'DESC';
+			}
+
+			//Ordering needs to happen here
+			$sqlQuery .= "ORDER BY `$orderby` $order ";
+			
+			$sqlQuery .= "LIMIT " . esc_sql( $start ) . "," .  esc_sql( $limit );
+		}
+
+		if( $count ) {
+			$sql_table_data = $wpdb->get_var( $sqlQuery ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Search term is esc_sql()'d inside quotes, filter values are prepared, orderby is whitelisted, order is hard-coded, and LIMIT values are integers.
+		} else {
+			$sql_table_data = $wpdb->get_results( $sqlQuery ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Search term is esc_sql()'d inside quotes, filter values are prepared, orderby is whitelisted, order is hard-coded, and LIMIT values are integers.
+		}
+
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+		return $sql_table_data;
+	}
+
+	/**
+	 * Sanitize the orderby value.
+	 * Only allow fields we want to order by.
+	 * Make sure we append the correct table prefix.
+	 * Make sure there is no other SQL in the value.
+	 * @param string $orderby The column to order by.
+	 * @return string The sanitized value.
+	 */
+	function sanitize_orderby( $orderby ) {
+		$allowed_orderbys = array(
+			'id'      => 'id',
+			'code'    => 'code',
+			'starts'  => 'starts',
+			'expires' => 'expires',
+			'used'    => 'uses',
+		);
+
+	 	if ( ! empty( $allowed_orderbys[$orderby] ) ) {
+			$orderby = $allowed_orderbys[$orderby];
+		} else {
+			$orderby = false;
+		}
+
+		return $orderby;
+	}
+
+	/**
+	 * Render a column when no column specific method exists.
+	 *
+	 * @param array  $item
+	 * @param string $column_name
+	 *
+	 * @return mixed
+	 */
+	public function column_default( $item, $column_name ) {
+		
+		$item = (array) apply_filters( 'pmpro_discount_code_list_item', (object) $item );
+
+		if ( isset( $item[ $column_name ] ) ) {
+			// If the user is adding content via the "pmpro_members_list_user" filter.
+			echo( esc_html( $item[ $column_name ] ) );
+		} elseif ( 0 === strpos( $column_name, 'custom_field_' ) ) {
+			
+			// If the user is adding content via the "pmpro_discountcodes_extra_cols_body" hook.
+			// Re-implementing old hook, will be deprecated.			
+			ob_start();
+			do_action( 'pmpro_discountcodes_extra_cols_body', (object) $item );
+			$extra_cols = ob_get_clean();
+			preg_match_all( '/<td>(.*?)<\/td>/s', $extra_cols, $matches );
+			$custom_field_num_arr = explode( 'custom_field_', $column_name );
+			$custom_field_num     = $custom_field_num_arr[1];			
+			if ( is_numeric( $custom_field_num ) && isset( $matches[1][ intval( $custom_field_num ) ] ) ) {
+				// If the escaping here breaks your old column body, use the new filters.
+				echo( wp_kses_post( $matches[1][ intval( $custom_field_num ) ] ) );
+			}
+		} else {
+			// The preferred ways of doing things.
+			do_action( 'pmpro_manage_discount_code_list_custom_column', $column_name, $item['id'] );
+		}
+		
+	}
+
+	/**
+	 * Render the columns discount code value
+	 *
+	 * @param array  $item
+	 *
+	 * @return mixed
+	 */
+	public function column_discount_code( $item ) {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Read-only: request vars are only used for list table search, sorting, pagination and building row action links.
+
+		?>
+		<strong><a title="<?php echo esc_attr( sprintf( __( 'Edit Code: %s', 'paid-memberships-pro' ), $item->id ) ); ?>" href="<?php echo esc_url( add_query_arg( array( 'page' => 'pmpro-discountcodes', 'edit' => $item->id ), admin_url('admin.php' ) ) ); ?>"><?php echo esc_html( $item->code ); ?></a></strong>
+		<?php
+			$rule_text = pmpro_get_discount_code_rule_text( $item );
+			if ( ! empty( $rule_text ) ) {
+				echo '<br /><span class="description">' . esc_html( $rule_text ) . '</span>';
+			}
+		?>
+		<div class="row-actions">
+		<?php
+			$delete_text = esc_html(
+				sprintf(
+					// translators: %s is the Discount Code.
+					__( 'Are you sure you want to delete the %s discount code? The subscriptions for existing users will not change, but new users will not be able to use this code anymore.', 'paid-memberships-pro' ),
+					$item->code
+				)
+			);
+
+			$delete_nonce_url = wp_nonce_url(
+				add_query_arg(
+					[
+						'page'    => 'pmpro-discountcodes',
+						'delete'  => $item->id,
+						's' 	  => isset( $_REQUEST['s'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['s'] ) ) : null,
+						'orderby' => isset( $_REQUEST['orderby'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['orderby'] ) ) : null,
+						'order'   => isset( $_REQUEST['order'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['order'] ) ) : null,
+						'paged'   => isset( $_REQUEST['paged'] ) ? intval( $_REQUEST['paged'] ) : null,
+						'status'  => isset( $_REQUEST['status'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['status'] ) ) : null,
+						'usage'   => isset( $_REQUEST['usage'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['usage'] ) ) : null,
+						'level'   => isset( $_REQUEST['level'] ) ? intval( $_REQUEST['level'] ) : null,
+					],
+					admin_url( 'admin.php' )
+				),
+				'delete',
+				'pmpro_discountcodes_nonce'
+			);
+
+			$actions = [
+				'edit'   => sprintf(
+					'<a title="%1$s" href="%2$s">%3$s</a>',
+					esc_attr__( 'Edit', 'paid-memberships-pro' ),
+					esc_url(
+						add_query_arg(
+							[
+								'page' => 'pmpro-discountcodes',
+								'edit' => $item->id,
+							],
+							admin_url( 'admin.php' )
+						)
+					),
+					esc_html__( 'Edit', 'paid-memberships-pro' )
+				),
+				'copy'   => sprintf(
+					'<a title="%1$s" href="%2$s">%3$s</a>',
+					esc_attr__( 'Copy', 'paid-memberships-pro' ),
+					esc_url(
+						add_query_arg(
+							[
+								'page' => 'pmpro-discountcodes',
+								'edit' => - 1,
+								'copy' => $item->id,
+							],
+							admin_url( 'admin.php' )
+						)
+					),
+					esc_html__( 'Copy', 'paid-memberships-pro' )
+				),
+				'delete' => sprintf(
+					'<a title="%1$s" href="%2$s">%3$s</a>',
+					esc_attr__( 'Delete', 'paid-memberships-pro' ),
+					'javascript:pmpro_askfirst(\'' . esc_js( $delete_text ) . '\', \'' . esc_js( $delete_nonce_url ) . '\'); void(0);',
+					esc_html__( 'Delete', 'paid-memberships-pro' )
+				),
+			];
+
+			if ( 0 < (int) $item->used ) {
+				$actions['orders'] = sprintf(
+					'<a title="%1$s" href="%2$s">%3$s</a>',
+					esc_attr__( 'View Orders', 'paid-memberships-pro' ),
+					esc_url(
+						add_query_arg(
+							[
+								'page'          => 'pmpro-orders',
+								'discount-code' => $item->id,
+								'filter'        => 'with-discount-code',
+							],
+							admin_url( 'admin.php' )
+						)
+					),
+					esc_html__( 'Orders', 'paid-memberships-pro' )
+				);
+			}
+
+			/**
+			 * Filter the extra actions for this discount code.
+			 *
+			 * @since 2.11
+			 *
+			 * @param array  $actions The list of actions.
+			 * @param object $item    The discount code data.
+			 */
+			$actions = apply_filters( 'pmpro_discountcodes_row_actions', $actions, $item );
+
+			$actions_html = [];
+
+			foreach ( $actions as $action => $link ) {
+				$actions_html[] = sprintf(
+					'<span class="%1$s">%2$s</span>',
+					esc_attr( $action ),
+					$link // Escaped above.
+				);
+			}
+
+			if ( ! empty( $actions_html ) ) {
+				echo implode( ' | ', $actions_html ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			}
+		?>
+		</div>
+		<?php
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+	}
+
+	/**
+	 * Render the discount uses value
+	 *
+	 * @param array  $item
+	 *
+	 * @return mixed
+	 */
+	public function column_uses( $item ) {
+		
+		global $wpdb;
+		
+		if( $item->uses > 0 ) {
+			echo "<strong>" . (int)$item->used . "</strong>/" . (int)$item->uses;
+		} else {
+			echo "<strong>" . (int)$item->used . "</strong>/" . esc_html__( 'unlimited', 'paid-memberships-pro' );
+		}
+
+	}
+
+	/**
+	 * Render the discount codes start value
+	 *
+	 * @param array  $item
+	 *
+	 * @return mixed
+	 */
+	public function column_starts( $item ) {
+
+		return date_i18n( get_option( 'date_format' ), $item->starts );
+
+	}
+
+	/**
+	 * Render the discount codes expiration value
+	 *
+	 * @param array  $item
+	 *
+	 * @return mixed
+	 */
+	public function column_expires( $item ) {
+
+		return date_i18n( get_option( 'date_format' ), $item->expires );
+		
+	}
+
+	/**
+	 * Render the level that the discount code applies to
+	 *
+	 * @param array  $item
+	 *
+	 * @return mixed
+	 */
+	public function column_levels( $item ) {
+
+		global $wpdb, $pmpro_pages;
+
+		$sqlQuery = $wpdb->prepare("
+			SELECT l.id, l.name
+			FROM $wpdb->pmpro_membership_levels l
+			LEFT JOIN $wpdb->pmpro_discount_codes_levels cl
+			ON l.id = cl.level_id
+			WHERE cl.code_id = %d",
+			esc_sql( $item->id )
+		);
+		$levels = $wpdb->get_results($sqlQuery); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sqlQuery was built with $wpdb->prepare() above.
+		$levels = pmpro_sort_levels_by_order( $levels );
+
+		$level_names = array();
+		foreach( $levels as $level ) {
+			if ( ! empty( $pmpro_pages['checkout'] ) ) {
+				$level_names[] = '<a target="_blank" href="' . esc_url( pmpro_url( 'checkout', '?pmpro_level=' . $level->id . '&pmpro_discount_code=' . $item->code ) ) . '">' . esc_html( $level->name ) . '</a>';
+			} else {
+				$level_names[] = $level->name;
+			}
+		}
+		if( $level_names ) {
+			// Echo imploded level names and escape allowing links.
+			echo wp_kses( implode( ', ', $level_names ), array( 'a' => array( 'href' => array(), 'title' => array(), 'target' => array() ) ) );
+		} else {
+			esc_html_e( 'None', 'paid-memberships-pro' );
+		}
+	}
+
+	/**
+	 * Add the filters and "Learn more" link to the top tablenav area.
+	 *
+	 * @param string $which The location of the extra table nav markup: 'top' or 'bottom'.
+	 * @since 3.x
+	 */
+	protected function extra_tablenav( $which ) {
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Read-only; request values are only used to filter the list table.
+		if ( 'top' === $which ) {
+			// Read current filter values from request.
+			$status = isset( $_REQUEST['status'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['status'] ) ) : '';
+			$usage  = isset( $_REQUEST['usage'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['usage'] ) ) : '';
+			$level  = isset( $_REQUEST['level'] ) ? intval( $_REQUEST['level'] ) : 0;
+
+			// Count active filters for the toggle button badge.
+			$active_filter_count = 0;
+			if ( ! empty( $status ) ) {
+				$active_filter_count++;
+			}
+			if ( ! empty( $usage ) ) {
+				$active_filter_count++;
+			}
+			if ( ! empty( $level ) ) {
+				$active_filter_count++;
+			}
+
+			$levels = pmpro_sort_levels_by_order( pmpro_getAllLevels( true, true ) );
+			?>
+			<button type="button" id="pmpro-discountcodes-toggle-filters" class="button button-primary pmpro-has-icon pmpro-has-icon-filter pmpro-filter-toggle">
+				<?php esc_html_e( 'Filter Results', 'paid-memberships-pro' ); ?>
+				<?php if ( $active_filter_count > 0 ) { ?>
+					<span class="pmpro-filter-badge"><?php echo esc_html( $active_filter_count ); ?></span>
+				<?php } ?>
+			</button>
+			<?php if ( $active_filter_count > 0 ) { ?>
+				<a href="<?php echo esc_url( add_query_arg( array( 'page' => 'pmpro-discountcodes' ), admin_url( 'admin.php' ) ) ); ?>" class="button"><?php esc_html_e( 'Clear Filters', 'paid-memberships-pro' ); ?></a>
+			<?php } ?>
+			<span class="pmpro-filter-learn-more">
+				<?php
+					$discount_codes_link = '<a title="' . esc_attr__( 'Paid Memberships Pro - Discount Codes Documentation', 'paid-memberships-pro' ) . '" target="_blank" rel="nofollow noopener" href="https://www.paidmembershipspro.com/documentation/admin/discount-codes/?utm_source=plugin&utm_medium=pmpro-discountcodes&utm_campaign=documentation&utm_content=&utm_term=">' . esc_html__( 'Discount Codes', 'paid-memberships-pro' ) . '</a>';
+					// translators: %s: Link to Discount Codes doc.
+					printf( esc_html__('Learn more about %s.', 'paid-memberships-pro' ), $discount_codes_link ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				?>
+			</span>
+
+			<div id="pmpro-discountcodes-filter-panel" class="pmpro-filter-panel">
+				<div class="pmpro_section">
+					<div class="pmpro-filter-header">
+						<h2><?php esc_html_e( 'Filters', 'paid-memberships-pro' ); ?></h2>
+						<button type="button" id="pmpro-discountcodes-close-filters" class="pmpro-filter-close" aria-label="<?php esc_attr_e( 'Close filters', 'paid-memberships-pro' ); ?>">
+							<span class="dashicons dashicons-no-alt"></span>
+						</button>
+					</div>
+
+					<div class="pmpro-filter-body">
+						<?php // Status filter. ?>
+						<div class="pmpro-filter-section">
+							<label for="pmpro-filter-status"><?php esc_html_e( 'Status', 'paid-memberships-pro' ); ?></label>
+							<select id="pmpro-filter-status" name="status">
+								<option value=""><?php esc_html_e( 'All Statuses', 'paid-memberships-pro' ); ?></option>
+								<option value="current" <?php selected( $status, 'current' ); ?>><?php esc_html_e( 'Current', 'paid-memberships-pro' ); ?></option>
+								<option value="upcoming" <?php selected( $status, 'upcoming' ); ?>><?php esc_html_e( 'Upcoming', 'paid-memberships-pro' ); ?></option>
+								<option value="expired" <?php selected( $status, 'expired' ); ?>><?php esc_html_e( 'Expired', 'paid-memberships-pro' ); ?></option>
+							</select>
+						</div>
+
+						<?php // Usage filter. ?>
+						<div class="pmpro-filter-section">
+							<label for="pmpro-filter-usage"><?php esc_html_e( 'Usage', 'paid-memberships-pro' ); ?></label>
+							<select id="pmpro-filter-usage" name="usage">
+								<option value=""><?php esc_html_e( 'All Usage', 'paid-memberships-pro' ); ?></option>
+								<option value="unused" <?php selected( $usage, 'unused' ); ?>><?php esc_html_e( 'Unused', 'paid-memberships-pro' ); ?></option>
+								<option value="used" <?php selected( $usage, 'used' ); ?>><?php esc_html_e( 'Used', 'paid-memberships-pro' ); ?></option>
+								<option value="used_up" <?php selected( $usage, 'used_up' ); ?>><?php esc_html_e( 'Used Up', 'paid-memberships-pro' ); ?></option>
+							</select>
+						</div>
+
+						<?php // Level filter. ?>
+						<div class="pmpro-filter-section">
+							<label for="pmpro-filter-level"><?php esc_html_e( 'Level', 'paid-memberships-pro' ); ?></label>
+							<select id="pmpro-filter-level" name="level">
+								<option value=""><?php esc_html_e( 'All Levels', 'paid-memberships-pro' ); ?></option>
+								<?php foreach ( $levels as $level_obj ) { ?>
+									<option value="<?php echo esc_attr( $level_obj->id ); ?>" <?php selected( $level, $level_obj->id ); ?>><?php echo esc_html( $level_obj->name ); ?></option>
+								<?php } ?>
+							</select>
+						</div>
+					</div>
+
+					<div class="pmpro-filter-actions">
+						<input type="submit" class="button button-primary" value="<?php esc_attr_e( 'Apply Filters', 'paid-memberships-pro' ); ?>" />
+						<?php if ( $active_filter_count > 0 ) { ?>
+							<a href="<?php echo esc_url( add_query_arg( array( 'page' => 'pmpro-discountcodes' ), admin_url( 'admin.php' ) ) ); ?>" class="pmpro-filter-clear"><?php esc_html_e( 'Clear All', 'paid-memberships-pro' ); ?></a>
+						<?php } ?>
+					</div>
+				</div>
+			</div>
+
+			<script>
+			jQuery(document).ready(function($) {
+				if ( typeof window.pmproInitFilterSidebar !== 'function' ) {
+					return;
+				}
+
+				window.pmproInitFilterSidebar({
+					panelSelector: '#pmpro-discountcodes-filter-panel',
+					layoutSelector: '#pmpro-discountcodes-layout',
+					toggleButtonSelector: '#pmpro-discountcodes-toggle-filters',
+					closeButtonSelector: '#pmpro-discountcodes-close-filters'
+				});
+			});
+			</script>
+			<?php
+		}
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+	}
+
+	/**
+	 * Override single_row function to add error class if the discount code row need to be highlighted due miscounfiguration
+	 *
+	 * @param StdClass $item The current row item.
+	 * @return void
+	 * @since 3.0.2
+	 */
+	public function single_row( $item ) {
+		$cssClass = ( ! pmpro_check_discount_code_for_gateway_compatibility( $item ) ) ? 'pmpro_error' : '';
+		echo '<tr class="' . esc_attr( $cssClass ) . '">';
+		$this->single_row_columns( $item );
+		echo '</tr>';
+	}
+	
+}

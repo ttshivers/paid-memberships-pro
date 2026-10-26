@@ -1,5 +1,7 @@
 <?php
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- CRUD class for PMPro custom tables, which have no WordPress API or object cache layer.
 
+#[AllowDynamicProperties]
 class PMPro_Membership_Level{
 
     function __construct( $id = NULL ) {
@@ -84,7 +86,7 @@ class PMPro_Membership_Level{
     function get_membership_level_categories( $id ) {
         global $wpdb;
 
-        $dblc = $wpdb->get_results( "SELECT * FROM $wpdb->pmpro_memberships_categories WHERE membership_id = " . $id . "", ARRAY_A );
+        $dblc = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM $wpdb->pmpro_memberships_categories WHERE membership_id = %d", $id ), ARRAY_A );
 
         $category_array = array();
 
@@ -174,23 +176,18 @@ class PMPro_Membership_Level{
            $this->id = $wpdb->insert_id;
         }
 
-        // Drop all categories if there are categories set from $this.
+        // Update term restrictions if there are categories set from $this.
         if ( isset( $this->categories ) && is_array( $this->categories ) ) {
-            
-            // Delete categories for membership ID so we can add them back again.
-            $wpdb->delete( $wpdb->pmpro_memberships_categories, array('membership_id' => $this->id), array('%d') );
+            // Only keep term IDs that still exist before linking them to this level.
+            $categories = array_filter( array_map( 'intval', $this->categories ), 'term_exists' );
 
-            foreach( $this->categories as $key => $category ) {
-                if ( term_exists( get_cat_name( $category ), 'category' ) ) {
-                    $wpdb->insert( $wpdb->pmpro_memberships_categories, array( 'membership_id' => $this->id, 'category_id' => $category ), array( '%d', '%d' ) );
-                }
-            }
+            pmpro_updateMembershipCategories( $this->id, $categories );
         }
         
         do_action( $after_action, $this );
     }
     /**
-     * Delete a membership level and categories.
+     * Delete a membership level and related non-historical records.
      * @since 2.3
      */
     function delete() {
@@ -201,56 +198,36 @@ class PMPro_Membership_Level{
 
         global $wpdb;
         $r1 = false; // Remove level.
-        $r2 = false; // Remove categories from level.
-        $r3 = true; // Remove users from level.
+        $r2 = false; // Remove related records from level.
+        $r3 = false; // Remove users from level.
+
+        do_action( 'pmpro_delete_membership_level', $this->id );
 
         if ( $wpdb->delete( $wpdb->pmpro_membership_levels, array('id' => $this->id), array('%d') ) ) {
             $r1 = true;
         }
 
-        if ( $wpdb->delete( $wpdb->pmpro_memberships_categories, array('membership_id' => $this->id), array('%d') ) ) {
+        if ( pmpro_delete_membership_level_relationships( $this->id ) ) {
             $r2 = true;
         }
 
-        // Try to remove users from the level too
-        $user_ids = $wpdb->get_col( $wpdb->prepare( "
-				SELECT user_id FROM $wpdb->pmpro_memberships_users
-				WHERE membership_id = %d
-				AND status = 'active'",
-			 	$this->id
-            ) );
-            
-
-			foreach($user_ids as $user_id) {
-				//change there membership level to none. that will handle the cancel
-				if(pmpro_changeMembershipLevel(0, $user_id)) {
-					//okay
-				} else {
-					//couldn't delete the subscription
-					//we should probably notify the admin
-					$pmproemail = new PMProEmail();
-					$pmproemail->data = array("body"=>"<p>" . sprintf(__("There was an error canceling the subscription for user with ID=%d. You will want to check your payment gateway to see if their subscription is still active.", 'paid-memberships-pro' ), $user_id) . "</p>");
-					$last_order = $wpdb->get_row( $wpdb->prepare( "
-						SELECT * FROM $wpdb->pmpro_membership_orders
-						WHERE user_id = %d
-						ORDER BY timestamp DESC LIMIT 1",
-						$user_id
-					) );
-					if($last_order)
-						$pmproemail->data["body"] .= "<p>" . __("Last Invoice", 'paid-memberships-pro' ) . ":<br />" . nl2br(var_export($last_order, true)) . "</p>";
-                    $pmproemail->sendEmail(get_bloginfo("admin_email"));
-                    
-                    $r3 = false; // Set it to false if it couldn't delete the subscription.
-				}
-            }
+        //Delete the memberships associated with this level - we're not cancelling them though
+        $deleted_membership_users = $wpdb->delete(
+            $wpdb->pmpro_memberships_users,
+            array( 'membership_id' => $this->id ),
+            array( '%d' )
+        );
         
-            
+        if( $deleted_membership_users !== false ) {
+            $r3 = true;
+        }
+
         if ( $r1 == true && $r2 == true && $r3 == true ) {
             return true;
         } elseif ( $r1 == true && $r2 == false && $r3 == false ) {
-            return 'Only the level was deleted. Users may still be assigned to this level';
+            return 'Only the level was deleted. Users may still be assigned to this level and related records may remain.';
         } elseif ( $r1 == false && $r2 == true && $r3 == false ) {
-            return 'Only categories were deleted. Users may still be assigned to this level.';
+            return 'Only related records were deleted. Users may still be assigned to this level.';
         } elseif( $r1 == false && $r2 == false && $r3 == true ) {
             return 'Only users were removed from this level.';
         } else {

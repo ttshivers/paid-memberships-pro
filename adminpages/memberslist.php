@@ -1,45 +1,55 @@
 <?php
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
 global $user_list_table;
 // Query, filter, and sort the data.
 $user_list_table = new PMPro_Members_List_Table();
 $user_list_table->prepare_items();
+
 require_once dirname( __DIR__ ) . '/adminpages/admin_header.php';
 
 // Build CSV export link.
-$csv_export_link = admin_url( 'admin-ajax.php' ) . '?action=memberslist_csv';
+// We now use the REST API for exports. Gather current filters to pass along when starting an export.
+$members_export_filters = array();
+// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Read-only; current list filters are only passed along to the export button.
 if ( isset( $_REQUEST['s'] ) ) {
-	$csv_export_link .= '&s=' . esc_attr( sanitize_text_field( trim( $_REQUEST['s'] ) ) );
+    $members_export_filters['s'] = esc_attr( trim( sanitize_text_field( wp_unslash( $_REQUEST['s'] ) ) ) );
 }
 if ( isset( $_REQUEST['l'] ) ) {
-	$csv_export_link .= '&l=' . sanitize_text_field( trim( $_REQUEST['l'] ) );
+    $members_export_filters['l'] = trim( sanitize_text_field( wp_unslash( $_REQUEST['l'] ) ) );
 }
+// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
 // Render the List Table.
 ?>
 	<hr class="wp-header-end">
-	<h1 class="wp-heading-inline"><?php esc_html_e( 'Members List', 'paid-memberships-pro' ); ?></h1>
-	<a target="_blank" href="<?php echo esc_url( $csv_export_link ); ?>" class="page-title-action"><?php esc_html_e( 'Export to CSV', 'paid-memberships-pro' ); ?></a>
-	<?php do_action( 'pmpro_memberslist_before_table' ); ?>			
-	<form id="member-list-form" method="get">
+	<form id="member-list-form" method="get">		
+		<h1 class="wp-heading-inline"><?php esc_html_e( 'Members List', 'paid-memberships-pro' ); ?></h1>
+		<?php if ( current_user_can( 'edit_users' ) ) { ?>
+			<a href="<?php echo esc_url( add_query_arg( array( 'page' => 'pmpro-member'), admin_url( 'admin.php' ) ) ); ?>" class="page-title-action pmpro-has-icon pmpro-has-icon-plus"><?php esc_html_e( 'Add New Member', 'paid-memberships-pro' ); ?></a>
+		<?php } ?>
+		<?php if ( current_user_can( 'pmpro_memberslistcsv' ) ) { ?>
+			<button type="button"
+				class="page-title-action pmpro-has-icon pmpro-has-icon-download pmpro-export-button"
+				aria-live="polite"
+				data-status="idle"
+				data-export-id=""
+				data-type="members"
+				data-start-url="<?php echo esc_url( rest_url( 'pmpro/v1/export/start' ) ); ?>"
+				data-status-url="<?php echo esc_url( rest_url( 'pmpro/v1/export/status' ) ); ?>"
+				data-nonce="<?php echo esc_attr( wp_create_nonce( 'wp_rest' ) ); ?>"
+				data-filters='<?php echo esc_attr( wp_json_encode( $members_export_filters ) ); ?>'>
+				<?php esc_html_e( 'Export to CSV', 'paid-memberships-pro' ); ?>
+			</button>
+		<?php } ?>
+		<?php do_action( 'pmpro_memberslist_before_table' ); ?>	
 		<input type="hidden" name="page" value="pmpro-memberslist" />
 		<?php
 			$user_list_table->search_box( __( 'Search Members', 'paid-memberships-pro' ), 'paid-memberships-pro' );
 			$user_list_table->display();
 		?>
 	</form>
-
-	<?php if ( ! function_exists( 'pmprorh_add_registration_field' ) ) {
-		$allowed_pmprorh_html = array (
-			'a' => array (
-				'href' => array(),
-				'target' => array(),
-				'title' => array(),
-			),
-		);
-		echo '<p class="description">' . sprintf( wp_kses( __( 'Optional: Capture additional member profile fields using the <a href="%s" title="Paid Memberships Pro - Register Helper Add On" target="_blank">Register Helper Add On</a>.', 'paid-memberships-pro' ), $allowed_pmprorh_html ), 'https://www.paidmembershipspro.com/add-ons/pmpro-register-helper-add-checkout-and-profile-fields/?utm_source=plugin&utm_medium=pmpro-memberslist&utm_campaign=add-ons&utm_content=pmpro-register-helper-add-checkout-and-profile-fields' ) . '</p>';
-	} ?>
-	
 <?php
 	require_once dirname( __DIR__ ) . '/adminpages/admin_footer.php';
-?>

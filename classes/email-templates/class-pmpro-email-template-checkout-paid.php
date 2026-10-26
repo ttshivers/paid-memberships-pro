@@ -1,0 +1,315 @@
+<?php
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Email Template: Checkout - Free
+ *
+ * @since 3.4
+ */
+class PMPro_Email_Template_Checkout_Paid extends PMPro_Email_Template {
+
+	/**
+	 * The user object of the user to send the email to.
+	 *
+	 * @var WP_User
+	 */
+	protected $user;
+
+	/**
+	 * The {@link MemberOrder} object of the order that was updated.
+	 *
+	 * @var MemberOrder
+	 */
+	protected $order;
+
+	/**
+	 * Constructor.
+	 *
+	 * @since 3.4
+	 *
+	 * @param WP_User $user The user object of the user to send the email to.
+	 * @param MemberOrder $order The order object that is associated to the member.
+	 */
+	public function __construct( WP_User $user,  MemberOrder $order ) {
+		$this->user = $user;
+		$this->order = $order;
+	}
+
+		/**
+	 * Get the email template slug.
+	 *
+	 * @since 3.4
+	 *
+	 * @return string The email template slug.
+	 */
+	public static function get_template_slug() {
+		return 'checkout_paid';
+	}
+
+	/**
+	 * Get the "nice name" of the email template.
+	 *
+	 * @since 3.4
+	 *
+	 * @return string The "nice name" of the email template.
+	 */
+	public static function get_template_name() {
+		return esc_html__( 'Checkout - Paid', 'paid-memberships-pro' );
+	}
+
+	/**
+	 * Get "help text" to display to the admin when editing the email template.
+	 *
+	 * @since 3.4
+	 *
+	 * @return string The help text.
+	 */
+	public static function get_template_description() {
+		return esc_html__( 'This is a membership confirmation welcome email sent to a new member or to existing members that change their level and complete a paid checkout on the site.', 'paid-memberships-pro' );
+	}	
+
+	/**
+	 * Get the email subject.
+	 *
+	 * @since 3.4
+	 *
+	 * @return string The email subject.
+	 */
+	public static function get_default_subject() {
+		return esc_html__( 'Your membership confirmation for {{ sitename }}', 'paid-memberships-pro' );
+	}
+
+	/**
+	 * Get the email body.
+	 *
+	 * @since 3.4
+	 *
+	 * @return string The email body.
+	 */
+	public static function get_default_body() {
+		return  wp_kses_post( __( '<p>Thank you for your membership to {{ sitename }}. Your membership account is now active.</p>
+
+{% if membership_level_confirmation_message %}{{ membership_level_confirmation_message }}{% endif %}
+
+<p>Below are details about your membership account and a receipt for your initial membership order.</p>
+
+<p>Account: {{ display_name }} ({{ user_email }})</p>
+
+<p>Membership Level: {{ membership_level_name }}</p>
+
+<p>Membership Fee: {{ membership_cost }}</p>
+
+{% if membership_expiration %}{{ membership_expiration }}{% endif %}
+
+{% if discount_code_name %}<p>Discount Code: {{ discount_code_name }}</p>{% endif %}
+
+<p>
+	Order #{{ order_id }} on {{ order_date }}<br />
+	Total Billed: {{ order_total }}
+</p>
+
+<p>
+	Billing Information:<br />
+	{{ billing_address }}
+</p>
+
+{% if accountnumber %}<p>
+	{{ cardtype }}: {{ accountnumber }}<br />
+	Expires: {{ expirationmonth }}/{{ expirationyear }}
+</p>{% endif %}
+
+<p>Log in to your membership account here: {{ login_url }}</p>', 'paid-memberships-pro' ) );
+	}
+
+	/**
+	 * Get the email address to send the email to.
+	 *
+	 * @since 3.4
+	 *
+	 * @return string The email address to send the email to.
+	 */
+	public function get_recipient_email() {
+		return $this->user->user_email;
+	}
+
+	/**
+	 * Get the name of the email recipient.
+	 *
+	 * @since 3.4
+	 *
+	 * @return string The name of the email recipient.
+	 */
+	public function get_recipient_name() {
+		return $this->user->display_name;
+	}
+
+	/**
+	 * Get the email template variables for the email.
+	 *
+	 * @since 3.4
+	 *
+	 * @return array The email template variables for the email (key => value pairs).
+	 */
+	public function get_email_template_variables() {
+		$order = $this->order;
+		$user = $this->user;
+		$membership_level = pmpro_getSpecificMembershipLevelForUser( $user->ID, $order->membership_id );
+		if ( empty( $membership_level ) ) {
+			$membership_level = pmpro_getLevel( $order->membership_id );
+		}
+
+		// Show the first payment date of a delayed subscription. Clone the level since membership levels
+		// for a user are cached.
+		if ( ! empty( $membership_level ) ) {
+			$membership_level = clone $membership_level;
+			if ( ! empty( $order->membership_level->profile_start_date ) ) {
+				// Use the date that checkout sent to the gateway, which Add Ons like Proration may have changed.
+				$membership_level->profile_start_date = pmpro_calculate_profile_start_date( $order, 'Y-m-d H:i:s' );
+			} else {
+				// The order doesn't have its checkout level, so get the delay date as of the checkout date.
+				$membership_level->profile_start_date = pmpro_get_subscription_delay_date( $membership_level->id, ! empty( $membership_level->code_id ) ? $membership_level->code_id : null, $order->getTimestamp() );
+			}
+		}
+
+		$confirmation_message = '';
+		$confirmation_in_email = get_pmpro_membership_level_meta( $membership_level->id, 'confirmation_in_email', true );
+		if ( ! empty( $confirmation_in_email ) ) {
+			$confirmation_message = wpautop( $membership_level->confirmation );
+		}
+
+		$membership_expiration = '';
+		if( ! empty( $membership_level->enddate ) ) {
+			$membership_expiration = "<p>" . sprintf(__("This membership will expire on %s.", 'paid-memberships-pro' ), date_i18n(get_option('date_format'), $membership_level->enddate)) . "</p>\n";
+		}
+
+		$discount_code = '';
+		$discount_code_name = '';
+		$discount_code_id = '';
+		if( $order->getDiscountCode() ) {
+			$discount_code = "<p>" . esc_html__("Discount Code", 'paid-memberships-pro' ) . ": " . $order->discount_code->code . "</p>\n";
+			$discount_code_name = $order->discount_code->code;
+			$discount_code_id = $order->discount_code->id;
+		}
+
+		$email_template_variables = array(
+			'subject' => $this->get_default_subject(),
+			'name' => $this->get_recipient_name(),
+			'display_name' => $this->get_recipient_name(),
+			'user_login' => $user->user_login,
+			'user_email' => $user->user_email,
+			'membership_id' => $membership_level->id,
+			'level_group_id' => pmpro_get_group_id_for_level( $membership_level->id ) ?: 0,
+			'membership_level_name' => $membership_level->name,
+			'membership_level_confirmation_message' => $confirmation_message,
+			'membership_cost' => pmpro_getLevelCost($membership_level),
+			'membership_expiration' => $membership_expiration,
+			'order_id' => $order->code,
+			'order_total' => $order->get_formatted_total(),
+			'order_total_raw' => $order->total,
+			'order_date' => date_i18n( get_option( 'date_format' ), $order->getTimestamp() ),
+			'order_url' => pmpro_login_url( pmpro_url( 'invoice', '?invoice=' . $order->code ) ),
+			'discount_code' => $discount_code,
+			'discount_code_name' => $discount_code_name,
+			'discount_code_id' => $discount_code_id,
+			'billing_address' => pmpro_formatAddress( $order->billing->name,
+														 $order->billing->street,
+														 $order->billing->street2,
+														 $order->billing->city,
+														 $order->billing->state,
+														 $order->billing->zip,
+														 $order->billing->country,
+														 $order->billing->phone ),
+			'billing_name' => $order->billing->name,
+			'billing_street' => $order->billing->street,
+			'billing_street2' => $order->billing->street2,
+			'billing_city' => $order->billing->city,
+			'billing_state' => $order->billing->state,
+			'billing_zip' => $order->billing->zip,
+			'billing_country' => $order->billing->country,
+			'billing_phone' => $order->billing->phone,
+			'cardtype' => $order->cardtype,
+			'accountnumber' => hideCardNumber( $order->accountnumber ),
+			'expirationmonth' => $order->expirationmonth,
+			'expirationyear' => $order->expirationyear,
+			'order_gateway' => $order->gateway,
+		);
+
+		return $email_template_variables;
+	}
+
+	/**
+	* Get the email template variables for the email paired with a description of the variable.
+	*
+	* @since 3.4
+	*
+	* @return array The email template variables for the email (key => value pairs).
+	*/
+	public static function get_email_template_variables_with_description() {
+
+		return array(
+			'{{ display_name }}' => __( 'The display name of the user.', 'paid-memberships-pro' ),
+			'{{ user_login }}' => __( 'The username of the user.', 'paid-memberships-pro' ),
+			'{{ user_email }}' => __( 'The email address of the user.', 'paid-memberships-pro' ),
+			'{{ membership_id }}' => __( 'The ID of the membership level.', 'paid-memberships-pro' ),
+			'{{ level_group_id }}' => __( 'The ID of the level group that the membership level belongs to.', 'paid-memberships-pro' ),
+			'{{ membership_level_name }}' => __( 'The name of the membership level.', 'paid-memberships-pro' ),
+			'{{ membership_level_confirmation_message }}' => __( 'The confirmation message for the membership level.', 'paid-memberships-pro' ),
+			'{{ membership_cost }}' => __( 'The cost of the membership level.', 'paid-memberships-pro' ),
+			'{{ membership_expiration }}' => __( 'The expiration date of the membership level.', 'paid-memberships-pro' ),
+			'{{ order_id }}' => __( 'The ID of the order.', 'paid-memberships-pro' ),
+			'{{ order_total }}' => __( 'The total cost of the order.', 'paid-memberships-pro' ),
+			'{{ order_total_raw }}' => __( 'The unformatted numeric total of the order.', 'paid-memberships-pro' ),
+			'{{ order_date }}' => __( 'The date of the order.', 'paid-memberships-pro' ),
+			'{{ order_url }}' => __( 'The URL of the order.', 'paid-memberships-pro' ),
+			'{{ discount_code }}' => __( 'The discount code for the order displayed as a formatted paragraph with label.', 'paid-memberships-pro' ),
+			'{{ discount_code_name }}' => __( 'The name of the discount code used for the order.', 'paid-memberships-pro' ),
+			'{{ discount_code_id }}' => __( 'The ID of the discount code used for the order.', 'paid-memberships-pro' ),
+			'{{ billing_address }}' => __( 'The complete billing address of the order.', 'paid-memberships-pro' ),
+			'{{ billing_name }}' => __( 'The billing name of the order.', 'paid-memberships-pro' ),
+			'{{ billing_street }}' => __( 'The billing street of the order.', 'paid-memberships-pro' ),
+			'{{ billing_street2 }}' => __( 'The billing street line 2 of the order.', 'paid-memberships-pro' ),
+			'{{ billing_city }}' => __( 'The billing city of the order.', 'paid-memberships-pro' ),
+			'{{ billing_state }}' => __( 'The billing state of the order.', 'paid-memberships-pro' ),
+			'{{ billing_zip }}' => __( 'The billing ZIP code of the order.', 'paid-memberships-pro' ),
+			'{{ billing_country }}' => __( 'The billing country of the order.', 'paid-memberships-pro' ),
+			'{{ billing_phone }}' => __( 'The billing phone number of the order.', 'paid-memberships-pro' ),
+			'{{ cardtype }}' => __( 'The type of credit card used.', 'paid-memberships-pro' ),
+			'{{ accountnumber }}' => __( 'The last four digits of the credit card number.', 'paid-memberships-pro' ),
+			'{{ expirationmonth }}' => __( 'The expiration month of the credit card.', 'paid-memberships-pro' ),
+			'{{ expirationyear }}' => __( 'The expiration year of the credit card.', 'paid-memberships-pro' ),
+			'{{ order_gateway }}' => __( 'The gateway used for the order.', 'paid-memberships-pro' ),
+		);
+	}
+
+	/**
+	 * Returns the arguments to send the test email from the abstract class.
+	 *
+	 * @since 3.5
+	 *
+	 * @return array The arguments to send the test email from the abstract class.
+	 */
+	public static function get_test_email_constructor_args() {
+		global $current_user;
+		//Create test order
+		$test_order = new MemberOrder();
+
+		return array( $current_user, $test_order->get_test_order() );
+	}
+}
+
+/**
+ * Register the email template.
+ *
+ * @since 3.4
+ *
+ * @param array $email_templates The email templates (template slug => email template class name)
+ * @return array The modified email templates array.
+ */
+function pmpro_email_templates_checkout_paid( $email_templates ) {
+	$email_templates['checkout_paid'] = 'PMPro_Email_Template_Checkout_Paid';
+
+	return $email_templates;
+}
+add_filter( 'pmpro_email_templates', 'pmpro_email_templates_checkout_paid' );

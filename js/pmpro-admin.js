@@ -4,10 +4,10 @@
  * @param	text	The prompt, i.e. are you sure?
  * @param	url		The url to redirect to.
  */
- function pmpro_askfirst( text, url ) {
-	var answer = window.confirm( text );
+function pmpro_askfirst(text, url) {
+	var answer = window.confirm(text);
 
-	if ( answer ) {
+	if (answer) {
 		window.location = url;
 	}
 }
@@ -16,10 +16,10 @@
  * Deprecated in v2.1
  * In case add-ons/etc are expecting the non-prefixed version.
  */
-if ( typeof askfirst !== 'function' ) {
-    function askfirst( text, url ) {
-        return pmpro_askfirst( text, url );
-    }
+if (typeof askfirst !== 'function') {
+	function askfirst(text, url) {
+		return pmpro_askfirst(text, url);
+	}
 }
 
 /*
@@ -27,103 +27,301 @@ if ( typeof askfirst !== 'function' ) {
  * Used to hide/show sub settings when a main setting is enabled.
  * @since v2.1
  */
-function pmpro_toggle_elements_by_selector( selector, checked ) {
-	if( checked === undefined ) {
-		jQuery( selector ).toggle();
-	} else if ( checked ) {
-		jQuery( selector ).show();
+function pmpro_toggle_elements_by_selector(selector, checked) {
+	if (checked === undefined) {
+		jQuery(selector).toggle();
+	} else if (checked) {
+		jQuery(selector).show();
 	} else {
-		jQuery( selector ).hide();
+		jQuery(selector).hide();
 	}
 }
+
+/*
+ * Initialize sidebar filters for list table screens.
+ */
+function pmpro_init_filter_sidebar(args) {
+	var settings = jQuery.extend(
+		{
+			panelSelector: '',
+			layoutSelector: '',
+			toggleButtonSelector: '',
+			closeButtonSelector: '',
+			select2ExcludeSelector: '',
+			dateModeSelector: '',
+			datePredefinedSelector: '',
+			dateCustomSelector: ''
+		},
+		args || {}
+	);
+
+	var $panel = jQuery(settings.panelSelector);
+	var $layout = jQuery(settings.layoutSelector);
+	var $toggleButton = jQuery(settings.toggleButtonSelector);
+
+	if (!$panel.length || !$layout.length || !$toggleButton.length) {
+		return;
+	}
+
+	// Move the filter panel from inside the tablenav into the layout wrapper.
+	$panel.prependTo($layout);
+
+	// Accessibility: link the toggle button to the panel.
+	var panelId = $panel.attr('id');
+	$toggleButton.attr({
+		'aria-expanded': 'false',
+		'aria-controls': panelId
+	});
+	$panel.attr('role', 'region').attr('aria-label', $panel.find('.pmpro-filter-header h2, .pmpro-filter-header h3').first().text());
+
+	function toggleSidebar(open) {
+		if (typeof open === 'undefined') {
+			open = !$layout.hasClass('pmpro-filter-open');
+		}
+		$layout.toggleClass('pmpro-filter-open', open);
+		$toggleButton.toggleClass('active', open).attr('aria-expanded', open);
+
+		// Move focus to the panel on open, back to the toggle on close.
+		if (open) {
+			$panel.find('.pmpro-filter-section select, .pmpro-filter-section input').first().focus();
+		} else {
+			$toggleButton.focus();
+		}
+	}
+
+	$toggleButton.on('click', function () {
+		toggleSidebar();
+	});
+
+	if (settings.closeButtonSelector) {
+		jQuery(settings.closeButtonSelector).on('click', function () {
+			toggleSidebar(false);
+		});
+	}
+
+	// Close the panel when Escape is pressed while focus is inside it.
+	$panel.on('keydown', function (e) {
+		if (e.key === 'Escape') {
+			toggleSidebar(false);
+		}
+	});
+
+	var $selects = $panel.find('select');
+	if (settings.select2ExcludeSelector) {
+		$selects = $selects.not(settings.select2ExcludeSelector);
+	}
+	if (typeof $selects.select2 === 'function') {
+		$selects.select2({ width: '100%', minimumResultsForSearch: 5 });
+	}
+
+	// Highlight filter sections that have an active (non-default) value.
+	$panel.find('.pmpro-filter-section').each(function () {
+		var $section = jQuery(this);
+		var $label = $section.find('> label');
+		var $srText = jQuery('<span class="screen-reader-text"></span>');
+		$label.append($srText);
+
+		function updateActiveClass() {
+			var hasValue = false;
+			$section.find('select[name], input[name]').not(':disabled').each(function () {
+				if (jQuery(this).val() !== '' && jQuery(this).val() !== null) {
+					hasValue = true;
+				}
+			});
+			$section.toggleClass('pmpro-filter-section-active', hasValue);
+			$srText.text(hasValue ? ' (active)' : '');
+		}
+		updateActiveClass();
+		$section.find('select, input').on('change', updateActiveClass);
+	});
+
+	// Date mode toggle.
+	if (
+		settings.dateModeSelector &&
+		settings.datePredefinedSelector &&
+		settings.dateCustomSelector
+	) {
+		jQuery(settings.dateModeSelector).on('change', function () {
+			var mode = jQuery(this).val();
+			var $predefined = $panel.find(settings.datePredefinedSelector);
+			var $custom = $panel.find(settings.dateCustomSelector);
+
+			if (mode === 'predefined') {
+				$predefined.show().find('select').prop('disabled', false);
+				$custom.hide().find('input').prop('disabled', true);
+			} else if (mode === 'custom') {
+				$predefined.hide().find('select').prop('disabled', true);
+				$custom.show().find('input').prop('disabled', false);
+			} else {
+				$predefined.hide().find('select').prop('disabled', true);
+				$custom.hide().find('input').prop('disabled', true);
+			}
+		});
+	}
+}
+
+window.pmproInitFilterSidebar = pmpro_init_filter_sidebar;
 
 /*
  * Find inputs with a custom attribute pmpro_toggle_trigger_for,
  * and bind change to toggle the specified elements.
  * @since v2.1
  */
-jQuery(document).ready(function() {
-	jQuery( 'input[pmpro_toggle_trigger_for]' ).on( 'change', function() {
-		pmpro_toggle_elements_by_selector( jQuery( this ).attr( 'pmpro_toggle_trigger_for' ), jQuery( this ).prop( 'checked' ) );
+jQuery(document).ready(function () {
+	jQuery('input[pmpro_toggle_trigger_for]').on('change', function () {
+		pmpro_toggle_elements_by_selector(jQuery(this).attr('pmpro_toggle_trigger_for'), jQuery(this).prop('checked'));
+	});
+});
+
+// Admin Settings Code.
+jQuery(document).ready(function () {
+	pmpro_admin_prep_click_events();
+});
+
+// Function to prep click events for admin settings.
+function pmpro_admin_prep_click_events() {
+	/*
+	 * Toggle content within the settings sections boxes.
+	 * @since 2.9
+	 */
+	jQuery('button.pmpro_section-toggle-button').on('click', function (event) {
+		event.preventDefault();
+
+		let thebutton = jQuery(event.target).parents('.pmpro_section').find('button.pmpro_section-toggle-button');
+		let buttonicon = thebutton.children('.dashicons');
+		let section = thebutton.closest('.pmpro_section');
+		let sectioninside = section.children('.pmpro_section_inside');
+
+		//let visibility = container.data('visibility');
+		//let activated = container.data('activated');
+		if (buttonicon.hasClass('dashicons-arrow-down-alt2')) {
+			// Section is not visible. Show it.
+			jQuery(sectioninside).show();
+			jQuery(buttonicon).removeClass('dashicons-arrow-down-alt2');
+			jQuery(buttonicon).addClass('dashicons-arrow-up-alt2');
+			jQuery(section).attr('data-visibility', 'shown');
+			jQuery(thebutton).attr('aria-expanded', 'true');
+		} else {
+			// Section is visible. Hide it.
+			jQuery(sectioninside).hide();
+			jQuery(buttonicon).removeClass('dashicons-arrow-up-alt2');
+			jQuery(buttonicon).addClass('dashicons-arrow-down-alt2');
+			jQuery(section).attr('data-visibility', 'hidden');
+			jQuery(thebutton).attr('aria-expanded', 'false');
+		}
+	});
+}
+
+// Popups: All handlers registered once on document ready.
+jQuery(document).ready(function () {
+	// Hide the popup when clicking outside the popup.
+	jQuery(document).on('click', function (e) {
+		if ( jQuery(e.target).closest('.pmpro-popup-wrap').length === 0 ) {
+			jQuery('.pmpro-popup-overlay').hide();
+		}
+	});
+
+	// Hide the popup when close/complete button is clicked.
+	jQuery(document).on('click', '.pmproPopupCloseButton, .pmproPopupCompleteButton', function (e) {
+		e.preventDefault();
+		jQuery('.pmpro-popup-overlay').hide();
+	});
+
+	// Hide the popup if "ESC" is pressed.
+	jQuery(document).on('keyup', function (e) {
+		if (e.key === 'Escape') {
+			jQuery('.pmpro-popup-overlay').hide();
+		}
 	});
 });
 
 /** JQuery to hide the notifications. */
-jQuery(document).ready(function(){
-	jQuery(document).on( 'click', '.pmpro-notice-button.notice-dismiss', function() {
-		var notification_id = jQuery( this ).val();
+jQuery(document).ready(function () {
+	jQuery(document).on('click', '.pmpro-notice-button.notice-dismiss', function () {
+		var notification_id = jQuery(this).val();
+		var nonce = jQuery(this).data('nonce');
 
 		var postData = {
 			action: 'pmpro_hide_notice',
-			notification_id: notification_id
+			notification_id: notification_id,
+			nonce: nonce
 		}
 
 		jQuery.ajax({
 			type: "POST",
 			data: postData,
 			url: ajaxurl,
-			success: function( response ) {
+			success: function (response) {
 				///console.log( notification_id );
-				jQuery('#'+notification_id).hide();
+				jQuery('#' + notification_id).hide();
 			}
 		})
 
+	});
+});
+
+/* jQuery to hide the pause notification if the secondary button is pressed */
+jQuery(document).ready(function () {
+	jQuery('#hide_pause_notification_button').click(function () {
+		jQuery('#hide_pause_notification .notice-dismiss').click();
 	});
 });
 
 /*
  * Create Webhook button for Stripe on the payment settings page.
  */
-jQuery(document).ready(function() {
+jQuery(document).ready(function () {
 	// Check that we are on payment settings page.
-	if ( ! jQuery( '#stripe_publishablekey' ).length || ! jQuery( '#stripe_secretkey' ).length || ! jQuery( '#pmpro_stripe_create_webhook' ).length ) {
+	if (!jQuery('#stripe_publishablekey').length || !jQuery('#stripe_secretkey').length || !jQuery('#pmpro_stripe_create_webhook').length) {
 		return;
 	}
 
-    // Disable the webhook buttons if the API keys aren't complete yet.
-    jQuery('#stripe_publishablekey,#stripe_secretkey').on('change keyup', function() {
-        pmpro_stripe_check_api_keys();
-    });
+	// Disable the webhook buttons if the API keys aren't complete yet.
+	jQuery('#stripe_publishablekey,#stripe_secretkey').on('change keyup', function () {
+		pmpro_stripe_check_api_keys();
+	});
 	pmpro_stripe_check_api_keys();
 
-    // AJAX call to create webhook.
-	jQuery('#pmpro_stripe_create_webhook').on( 'click', function(event){
-        event.preventDefault();
+	// AJAX call to create webhook.
+	jQuery('#pmpro_stripe_create_webhook').on('click', function (event) {
+		event.preventDefault();
 
 		var postData = {
 			action: 'pmpro_stripe_create_webhook',
+			nonce: pmpro.stripe_webhook_nonce,
 			secretkey: pmpro_stripe_get_secretkey(),
 		}
 		jQuery.ajax({
 			type: "POST",
 			data: postData,
 			url: ajaxurl,
-			success: function( response ) {
-				response = jQuery.parseJSON( response );
-                ///console.log( response );
+			success: function (response) {
+				response = jQuery.parseJSON(response);
+				///console.log( response );
 
-                jQuery( '#pmpro_stripe_webhook_notice' ).parent('div').removeClass('error')
-                jQuery( '#pmpro_stripe_webhook_notice' ).parent('div').removeClass('notice-success')
+				jQuery('#pmpro_stripe_webhook_notice').parent('div').removeClass('error')
+				jQuery('#pmpro_stripe_webhook_notice').parent('div').removeClass('notice-success')
 
-                if ( response.notice ) {
-                    jQuery('#pmpro_stripe_webhook_notice').parent('div').addClass(response.notice);
-                }
-                if ( response.message ) {
-                    jQuery('#pmpro_stripe_webhook_notice').html(response.message);
-                }
-                if ( response.success ) {
-                    jQuery('#pmpro_stripe_create_webhook').hide();
-                }
+				if (response.notice) {
+					jQuery('#pmpro_stripe_webhook_notice').parent('div').addClass(response.notice);
+				}
+				if (response.message) {
+					jQuery('#pmpro_stripe_webhook_notice').html(response.message);
+				}
+				if (response.success) {
+					jQuery('#pmpro_stripe_create_webhook').hide();
+				}
 			}
 		})
-    });
+	});
 
-    // AJAX call to delete webhook.
-	jQuery('#pmpro_stripe_delete_webhook').on( 'click', function(event){
-        event.preventDefault();
+	// AJAX call to delete webhook.
+	jQuery('#pmpro_stripe_delete_webhook').on('click', function (event) {
+		event.preventDefault();
 
 		var postData = {
 			action: 'pmpro_stripe_delete_webhook',
+			nonce: pmpro.stripe_webhook_nonce,
 			secretkey: pmpro_stripe_get_secretkey(),
 		}
 
@@ -131,32 +329,33 @@ jQuery(document).ready(function() {
 			type: "POST",
 			data: postData,
 			url: ajaxurl,
-			success: function( response ) {
-				response = jQuery.parseJSON( response );
-                ///console.log( response );
+			success: function (response) {
+				response = jQuery.parseJSON(response);
+				///console.log( response );
 
-                jQuery( '#pmpro_stripe_webhook_notice' ).parent('div').removeClass('error')
-                jQuery( '#pmpro_stripe_webhook_notice' ).parent('div').removeClass('notice-success')
+				jQuery('#pmpro_stripe_webhook_notice').parent('div').removeClass('error')
+				jQuery('#pmpro_stripe_webhook_notice').parent('div').removeClass('notice-success')
 
-                if ( response.notice ) {
-                    jQuery('#pmpro_stripe_webhook_notice').parent('div').addClass(response.notice);
-                }
-                if ( response.message ) {
-                    jQuery('#pmpro_stripe_webhook_notice').html(response.message);
-                }
-                if ( response.success ) {
-                    jQuery('#pmpro_stripe_create_webhook').show();
-                }
+				if (response.notice) {
+					jQuery('#pmpro_stripe_webhook_notice').parent('div').addClass(response.notice);
+				}
+				if (response.message) {
+					jQuery('#pmpro_stripe_webhook_notice').html(response.message);
+				}
+				if (response.success) {
+					jQuery('#pmpro_stripe_create_webhook').show();
+				}
 			}
 		})
 	});
 
 	// AJAX call to rebuild webhook.
-	jQuery('#pmpro_stripe_rebuild_webhook').on( 'click', function(event){
-        event.preventDefault();
+	jQuery('#pmpro_stripe_rebuild_webhook').on('click', function (event) {
+		event.preventDefault();
 
 		var postData = {
 			action: 'pmpro_stripe_rebuild_webhook',
+			nonce: pmpro.stripe_webhook_nonce,
 			secretkey: pmpro_stripe_get_secretkey(),
 		}
 
@@ -164,42 +363,375 @@ jQuery(document).ready(function() {
 			type: "POST",
 			data: postData,
 			url: ajaxurl,
-			success: function( response ) {
-				response = jQuery.parseJSON( response );
-                ///console.log( response );
+			success: function (response) {
+				response = jQuery.parseJSON(response);
+				///console.log( response );
 
-                jQuery( '#pmpro_stripe_webhook_notice' ).parent('div').removeClass('error')
-                jQuery( '#pmpro_stripe_webhook_notice' ).parent('div').removeClass('notice-success')
+				jQuery('#pmpro_stripe_webhook_notice').parent('div').removeClass('error')
+				jQuery('#pmpro_stripe_webhook_notice').parent('div').removeClass('notice-success')
 
-                if ( response.notice ) {
-                    jQuery('#pmpro_stripe_webhook_notice').parent('div').addClass(response.notice);
-                }
-                if ( response.message ) {
-                    jQuery('#pmpro_stripe_webhook_notice').html(response.message);
-                }
-                if ( response.success ) {
-                    jQuery('#pmpro_stripe_create_webhook').hide();
-                }
+				if (response.notice) {
+					jQuery('#pmpro_stripe_webhook_notice').parent('div').addClass(response.notice);
+				}
+				if (response.message) {
+					jQuery('#pmpro_stripe_webhook_notice').html(response.message);
+				}
+				if (response.success) {
+					jQuery('#pmpro_stripe_create_webhook').hide();
+				}
 			}
 		})
-    });
+	});
 });
 
 // Disable the webhook buttons if the API keys aren't complete yet.
 function pmpro_stripe_check_api_keys() {
-    if( ( jQuery('#stripe_publishablekey').val().length > 0 && jQuery('#stripe_secretkey').val().length > 0 ) || jQuery('#live_stripe_connect_secretkey').val().length > 0 ) {
-        jQuery('#pmpro_stripe_create_webhook').removeClass('disabled');
-        jQuery('#pmpro_stripe_create_webhook').addClass('button-secondary');
-    } else {
-        jQuery('#pmpro_stripe_create_webhook').removeClass('button-secondary');
-        jQuery('#pmpro_stripe_create_webhook').addClass('disabled');
-    }
+	if ((jQuery('#stripe_publishablekey').val().length > 0 && jQuery('#stripe_secretkey').val().length > 0) || jQuery('#live_stripe_connect_secretkey').val().length > 0) {
+		jQuery('#pmpro_stripe_create_webhook').removeClass('disabled');
+		jQuery('#pmpro_stripe_create_webhook').addClass('button-secondary');
+	} else {
+		jQuery('#pmpro_stripe_create_webhook').removeClass('button-secondary');
+		jQuery('#pmpro_stripe_create_webhook').addClass('disabled');
+	}
+}
+
+// User Fields Code.
+jQuery(document).ready(function () {
+	pmpro_userfields_prep_click_events();
+});
+
+// Function to prep click events.
+function pmpro_userfields_prep_click_events() {
+	// Whenever we make a change, warn the user if they try to navigate away.
+	function pmpro_userfields_made_a_change() {
+		window.onbeforeunload = function () {
+			return true;
+		};
+		jQuery('#pmpro_userfields_savesettings').prop("disabled", false);
+	}
+
+	// Add group button.
+	jQuery('#pmpro_userfields_add_group').unbind('click').on('click', function (event) {
+		jQuery('#pmpro_userfields_add_group').parent('p').before(pmpro.user_fields_blank_group);
+		pmpro_userfields_prep_click_events();
+		jQuery('#pmpro_userfields_add_group').parent('p').prev().find('input').focus().select();
+		pmpro_userfields_made_a_change();
+	});
+
+	// Delete group button.
+	jQuery('.pmpro_userfield-group-actions button[name=pmpro_userfields_delete_group]').unbind('click').on('click', function (event) {
+		var thegroup = jQuery(this).closest('.pmpro_userfield-group');
+		var thename = thegroup.find('input[name=pmpro_userfields_group_name]').val();
+		var answer;
+		if (thename.length > 0) {
+			answer = window.confirm('Delete the "' + thename + '" group?');
+		} else {
+			answer = window.confirm('Delete this group?');
+		}
+		if (answer) {
+			thegroup.remove();
+			pmpro_userfields_made_a_change();
+		}
+	});
+
+	// Add field button.
+	jQuery('button[name="pmpro_userfields_add_field"]').unbind('click').on('click', function (event) {
+		var thefields = jQuery(event.target).closest('div.pmpro_userfield-group-actions').siblings('div.pmpro_userfield-group-fields');
+		thefields.append(pmpro.user_fields_blank_field);
+		pmpro_userfields_prep_click_events();
+		thefields.children().last().find('.edit-field').click();
+		thefields.children().last().find('input[name="pmpro_userfields_field_label"]').focus().select();
+		pmpro_userfields_made_a_change();
+	});
+
+	// Delete field button.
+	jQuery('.pmpro_userfield-field-options a.delete-field, .pmpro_userfield-field-actions .is-destructive').unbind('click').on('click', function (event) {
+		var thefield = jQuery(this).closest('.pmpro_userfield-group-field');
+		var thelabel = thefield.find('input[name=pmpro_userfields_field_label]').val();
+		var answer;
+		if (thelabel.length > 0) {
+			answer = window.confirm('Delete the "' + thelabel + '" field?');
+		} else {
+			answer = window.confirm('Delete this unlabeled field?');
+		}
+		if (answer) {
+			thefield.remove();
+			pmpro_userfields_made_a_change();
+		}
+	});
+
+	// Toggle groups.
+	jQuery('button.pmpro_userfield-group-buttons-button-toggle-group, div.pmpro_userfield-group-header h3').unbind('click').on('click', function (event) {
+		event.preventDefault();
+
+		// Ignore if the text field was clicked.
+		if (jQuery(event.target).prop('nodeName') === 'INPUT') {
+			return;
+		}
+
+		// Find the toggle button and open or close.
+		let thebutton = jQuery(event.target).parents('.pmpro_userfield-group').find('button.pmpro_userfield-group-buttons-button-toggle-group');
+		let buttonicon = thebutton.children('.dashicons');
+		let groupheader = thebutton.closest('.pmpro_userfield-group-header');
+		let groupinside = groupheader.siblings('.pmpro_userfield-inside');
+
+		if (buttonicon.hasClass('dashicons-arrow-up')) {
+			// closing
+			buttonicon.removeClass('dashicons-arrow-up');
+			buttonicon.addClass('dashicons-arrow-down');
+			groupinside.slideUp();
+		} else {
+			// opening
+			buttonicon.removeClass('dashicons-arrow-down');
+			buttonicon.addClass('dashicons-arrow-up');
+			groupinside.slideDown();
+		}
+	});
+
+	// Move group up.
+	jQuery('.pmpro_userfield-group-buttons-button-move-up').unbind('click').on('click', function (event) {
+		var thegroup = jQuery(this).closest('.pmpro_userfield-group');
+		var thegroupprev = thegroup.prev('.pmpro_userfield-group');
+		if (thegroupprev.length > 0) {
+			thegroup.insertBefore(thegroupprev);
+			pmpro_userfields_made_a_change();
+		}
+	});
+
+	// Move group down.
+	jQuery('.pmpro_userfield-group-buttons-button-move-down').unbind('click').on('click', function (event) {
+		var thegroup = jQuery(this).closest('.pmpro_userfield-group');
+		var thegroupnext = thegroup.next('.pmpro_userfield-group');
+		if (thegroupnext.length > 0) {
+			thegroup.insertAfter(thegroupnext);
+			pmpro_userfields_made_a_change();
+		}
+	});
+
+	// Open field.
+	jQuery('a.edit-field').unbind('click').on('click', function (event) {
+		var fieldcontainer = jQuery(this).parents('.pmpro_userfield-group-field');
+		var fieldsettings = fieldcontainer.children('.pmpro_userfield-field-settings');
+
+		fieldcontainer.removeClass('pmpro_userfield-group-field-collapse');
+		fieldcontainer.addClass('pmpro_userfield-group-field-expand');
+		fieldsettings.find('select[name=pmpro_userfields_field_type]').change();
+		fieldsettings.show();
+	});
+
+	// Close field.
+	jQuery('button.pmpro_userfields_close_field').unbind('click').on('click', function (event) {
+		event.preventDefault();
+		var fieldcontainer = jQuery(this).parents('.pmpro_userfield-group-field');
+		var fieldsettings = fieldcontainer.children('.pmpro_userfield-field-settings');
+		var fieldheading = fieldsettings.prev();
+		// Update label, name, and type.
+		fieldheading.find('span.pmpro_userfield-label').html(fieldsettings.find('input[name=pmpro_userfields_field_label]').val().replace(/(<([^>]+)>)/gi, ''));
+		fieldheading.find('li.pmpro_userfield-group-column-name').html(fieldsettings.find('input[name=pmpro_userfields_field_name]').val());
+		fieldheading.find('li.pmpro_userfield-group-column-type').html(fieldsettings.find('select[name=pmpro_userfields_field_type]').val());
+
+		// Toggle
+		fieldcontainer.removeClass('pmpro_userfield-group-field-expand');
+		fieldcontainer.addClass('pmpro_userfield-group-field-collapse');
+		fieldsettings.hide();
+	});
+
+	// Move field up.
+	jQuery('.pmpro_userfield-field-buttons-button-move-up').unbind('click').on('click', function (event) {
+		var thefield = jQuery(this).closest('.pmpro_userfield-group-field');
+		var thefieldprev = thefield.prev('.pmpro_userfield-group-field');
+		if (thefieldprev.length > 0) {
+			thefield.insertBefore(thefieldprev);
+			pmpro_userfields_made_a_change();
+		}
+	});
+
+	// Move field down.
+	jQuery('.pmpro_userfield-field-buttons-button-move-down').unbind('click').on('click', function (event) {
+		var thefield = jQuery(this).closest('.pmpro_userfield-group-field');
+		var thefieldnext = thefield.next('.pmpro_userfield-group-field');
+		if (thefieldnext.length > 0) {
+			thefield.insertAfter(thefieldnext);
+			pmpro_userfields_made_a_change();
+		}
+	});
+
+	// Duplicate field.
+	jQuery('a.duplicate-field').unbind('click').on('click', function (event) {
+		var thefield = jQuery(this).closest('.pmpro_userfield-group-field');
+		thefield.clone(true).insertAfter(thefield); // clone( true ) to clone event handlers.
+		pmpro_userfields_made_a_change();
+	});
+
+	// Toggle required at checkout field settings based on group settings.
+	jQuery('select[name="pmpro_userfields_group_checkout"]').unbind('change').on('change', function () {
+		var groupContainer = jQuery(this).closest('.pmpro_userfield-inside');
+		var fieldSettings = groupContainer.find('.pmpro_userfield-group-fields');
+		var requiredFields = fieldSettings.find('#pmpro_userfield-field-setting_required');
+
+		// Toggle visibility based on group setting.
+		if (jQuery(this).val() === 'yes') {
+			requiredFields.show();
+		} else {
+			requiredFields.hide();
+		}
+	}).trigger('change');
+
+	// Toggle field settings based on type.
+	jQuery('select[name=pmpro_userfields_field_type]').on('change', function (event) {
+		var fieldcontainer = jQuery(this).parents('.pmpro_userfield-group-field');
+		var fieldsettings = fieldcontainer.children('.pmpro_userfield-field-settings');
+		var fieldtype = jQuery(this).val();
+
+		var fieldoptions = fieldsettings.find('#pmpro_userfield-field-setting_options');
+		var fieldfiles = fieldsettings.find('#pmpro_userfield-row-settings_files');
+		var fielddefault = fieldsettings.find('#pmpro_userfield-field-setting_default');
+
+		// Hide all the field settings.
+		fieldoptions.hide();
+		fieldfiles.hide();
+		fielddefault.hide();
+
+		// Show the option field if needed.
+		var optiontypes = ['checkbox_grouped', 'radio', 'select', 'select2', 'multiselect'];
+		if (jQuery.inArray(fieldtype, optiontypes) > -1) {
+			fieldoptions.show();
+		}
+
+		// Show the file field options if needed.
+		if (fieldtype === 'file') {
+			fieldfiles.show();
+		}
+
+		// Show the default field if needed.
+		var defaulttypes = ['text', 'textarea', 'checkbox', 'radio', 'select', 'date', 'readonly', 'hidden', 'number'];
+		if (jQuery.inArray(fieldtype, defaulttypes) > -1) {
+			fielddefault.show();
+		}
+	});
+
+	// Suggest name after leaving label field.
+	jQuery('input[name=pmpro_userfields_field_label]').on('focusout', function (event) {
+		var fieldcontainer = jQuery(this).parents('.pmpro_userfield-group-field');
+		var fieldsettings = fieldcontainer.children('.pmpro_userfield-field-settings');
+		var fieldname = fieldsettings.find('input[name=pmpro_userfields_field_name]');
+		if (!fieldname.val()) {
+			fieldname.val(jQuery(this).val().toLowerCase().replace(/[^a-z0-9]/gi, '_').replace(/(^\_+|\_+$)/mg, ''));
+		}
+	});
+
+	// If we change a field, mark it as changed.
+	jQuery('.pmpro_userfield-group input, .pmpro_userfield-group textarea, .pmpro_userfield-group select').on('change', function (event) {
+		pmpro_userfields_made_a_change();
+	});
+
+	// Save User Field Settings
+	jQuery('#pmpro_userfields_savesettings').unbind('click').on('click', function (event) {
+		///event.preventDefault();
+		// We have saved, so we no longer need to warn user if they try to navigate away.
+		window.onbeforeunload = null;
+
+		let field_groups = [];
+		let group_names = [];
+		let default_group_name = 'More Information';
+
+		jQuery('.pmpro_userfield-group').each(function (index, value) {
+			let group_name = jQuery(this).find('input[name=pmpro_userfields_group_name]').val();
+
+			// Make sure name is not blank.
+			if (group_name.length === 0) {
+				group_name = default_group_name;
+			}
+			// Make sure name is unique.
+			let count = 1;
+			while (group_names.includes(group_name)) {
+				count++;
+				group_name = group_name.replace(/\(0-9*\)/, '');
+				group_name = group_name + ' (' + String(count) + ')';
+			}
+			group_names.push(group_name);
+
+			let group_checkout = jQuery(this).find('select[name=pmpro_userfields_group_checkout]').val();
+			let group_profile = jQuery(this).find('select[name=pmpro_userfields_group_profile]').val();
+			let group_description = jQuery(this).find('textarea[name=pmpro_userfields_group_description]').val();
+
+			// Get level ids.
+			let group_levels = [];
+			jQuery(this).find('input[name="pmpro_userfields_group_membership[]"]:checked').each(function () {
+				group_levels.push(parseInt(jQuery(this).attr('id').replace('pmpro_userfields_group_membership_', '')));
+			});
+
+			// Get fields.
+			let group_fields = [];
+			jQuery(this).find('div.pmpro_userfield-group-fields div.pmpro_userfield-field-settings').each(function () {
+				let field_label = jQuery(this).find('input[name=pmpro_userfields_field_label]').val();
+				let field_name = jQuery(this).find('input[name=pmpro_userfields_field_name]').val();
+				let field_type = jQuery(this).find('select[name=pmpro_userfields_field_type]').val();
+				let field_required = jQuery(this).find('select[name=pmpro_userfields_field_required]').val();
+				let field_readonly = jQuery(this).find('select[name=pmpro_userfields_field_readonly]').val();
+				let field_profile = jQuery(this).find('select[name=pmpro_userfields_field_profile]').val();
+				let field_wrapper_class = jQuery(this).find('input[name=pmpro_userfields_field_class]').val();
+				let field_element_class = jQuery(this).find('input[name=pmpro_userfields_field_divclass]').val();
+				let field_hint = jQuery(this).find('textarea[name=pmpro_userfields_field_hint]').val();
+				let field_options = jQuery(this).find('textarea[name=pmpro_userfields_field_options]').val();
+				let field_allowed_file_types = jQuery(this).find('input[name=pmpro_userfields_field_allowed_file_types]').val();
+				let field_max_file_size = jQuery(this).find('input[name=pmpro_userfields_field_max_file_size]').val();
+				let field_default = jQuery(this).find('input[name=pmpro_userfields_field_default]').val();
+
+				// Get level ids.
+				let field_levels = [];
+				jQuery(this).find('input[name="pmpro_userfields_field_levels[]"]:checked').each(function () {
+					field_levels.push(parseInt(jQuery(this).attr('id').replace('pmpro_userfields_field_levels_', '')));
+				});
+
+				let field = {
+					'label': field_label,
+					'name': field_name,
+					'type': field_type,
+					'required': field_required,
+					'readonly': field_readonly,
+					'levels': field_levels,
+					'profile': field_profile,
+					'wrapper_class': field_wrapper_class,
+					'element_class': field_element_class,
+					'hint': field_hint,
+					'options': field_options,
+					'allowed_file_types': field_allowed_file_types,
+					'max_file_size': field_max_file_size,
+					'default': field_default
+				};
+
+				// Add to array. (Only if it has a label or name.)
+				if (field.label.length > 0 || field.name.length > 0) {
+					group_fields.push(field);
+				}
+			});
+
+			// Set up the field group object.
+			let field_group = {
+				'name': group_name,
+				'checkout': group_checkout,
+				'profile': group_profile,
+				'description': group_description,
+				'levels': group_levels,
+				'fields': group_fields
+			};
+
+			// Add to array.
+			field_groups.push(field_group);
+		});
+
+		// console.log( field_groups );
+		jQuery('#pmpro_user_fields_settings').val(JSON.stringify(field_groups));
+
+		return true;
+	});
 }
 
 function pmpro_stripe_get_secretkey() {
-    // We can't do the webhook calls with the Connect keys anyway,
-    // so we just look for the legacy key here.
-    if ( jQuery('#stripe_secretkey').val().length > 0 ) {
+	// We can't do the webhook calls with the Connect keys anyway,
+	// so we just look for the legacy key here.
+	if (jQuery('#stripe_secretkey').val().length > 0) {
 		return jQuery('#stripe_secretkey').val();
 	} else {
 		return '';
@@ -207,236 +739,1292 @@ function pmpro_stripe_get_secretkey() {
 }
 
 // EMAIL TEMPLATES.
-jQuery(document).ready(function($) {
+jQuery(document).ready(function ($) {
 
 	/* Variables */
-	var template, disabled, $subject, $editor, $testemail;
-	$subject = $("#pmpro_email_template_subject").closest("tr");
-	$editor = $("#wp-email_template_body-wrap");
-	$testemail = $("#test_email_address").closest("tr");
+	$template = $('#edit').val();
+	var $emailTemplateForm = $("#pmpro_submit_template_data").closest('form');
 
-    $(".pmpro_admin .hide-while-loading").hide();
-    $(".pmpro_admin .controls").hide();
+	$emailTemplateForm.submit(function (e) {
+		e.preventDefault();
+		pmpro_save_template();
+	});
 
-    /* PMPro Email Template Switcher */
-    $("#pmpro_email_template_switcher").change(function() {
+	$("#pmpro_submit_template_data").click(function (e) {
+		e.preventDefault();
+		pmpro_save_template();
+	});
 
-        $(".status_message").hide();
-        template = $(this).val();
+	$("#pmpro_reset_template_data").click(function () {
+		pmpro_reset_template();
+	});
 
-        //get template data
-        if (template)
-            pmpro_get_template(template);
-        else {
-            $(".pmpro_admin .hide-while-loading").hide();
-            $(".pmpro_admin .controls").hide();
-        }
-    });
+	$("#pmpro_email_template_disable").click(function (e) {
+		pmpro_disable_template();
+	});
 
-    $("#pmpro_submit_template_data").click(function() {
-        pmpro_save_template()
-    });
+	$("#send_test_email").click(function (e) {
+		e.preventDefault();
+		pmpro_save_template().done(function () {
+			setTimeout(function () {
+				pmpro_send_test_email();
+			}, 1000);
+		});
+	});
 
-    $("#pmpro_reset_template_data").click(function() {
-        pmpro_reset_template();
-    });
+	/**
+	 * Clean up a comma-separated email list.
+	 * Strips leading/trailing commas, collapses extra whitespace around commas.
+	 */
+	function pmpro_clean_email_list( value ) {
+		// Return an empty string if the value is empty or undefined/null.
+		if ( ! value ) {
+			return '';
+		}
 
-    $("#pmpro_email_template_disable").click(function(e) {
-        pmpro_disable_template();
-    });
+		// Split by comma, trim each part, remove empties, rejoin.
+		return value.split( ',' ).map( function( s ) { return s.trim(); } ).filter( Boolean ).join( ', ' );
+	}
 
-    $("#send_test_email").click(function(e) {
-		pmpro_save_template().done(setTimeout(function(){pmpro_send_test_email();}, '1000'));
-    });
+	function pmpro_email_template_body_editor() {
+		if ( typeof tinymce === 'undefined' ) {
+			return null;
+		}
 
-    /* Functions */
-    function pmpro_get_template(template) {
+		return tinymce.get( 'pmpro_email_template_body' ) || null;
+	}
 
-		//hide stuff and show ajax spinner
-        $(".hide-while-loading").hide();
-        $("#pmproet-spinner").show();
+	function pmpro_set_email_template_body_disabled( disabled ) {
+		var isDisabled = disabled === true || disabled === 'true';
+		var editor = pmpro_email_template_body_editor();
+		var $editorWrap = $('#wp-pmpro_email_template_body-wrap');
 
-        //get template data
-        $data = {
-            template: template,
-            action: 'pmpro_email_templates_get_template_data',
-            security: $('input[name=security]').val()
-        };
+		if ( isDisabled ) {
+			$("#pmpro_email_template_body").attr('readonly', 'readonly').attr('disabled', 'disabled');
+			$editorWrap.find('.quicktags-toolbar input, .wp-switch-editor').prop('disabled', true);
+		} else {
+			$("#pmpro_email_template_body").removeAttr('readonly').removeAttr('disabled');
+			$editorWrap.find('.quicktags-toolbar input, .wp-switch-editor').prop('disabled', false);
+		}
 
-        //console.log( $data );
+		if ( editor && typeof editor.setMode === 'function' ) {
+			editor.setMode( isDisabled ? 'readonly' : 'design' );
+		}
+	}
 
-        $.post(ajaxurl, $data, function(response) {
-            var template_data = JSON.parse(response);
+	if ( typeof tinymce !== 'undefined' && typeof tinymce.on === 'function' ) {
+		tinymce.on( 'AddEditor', function( event ) {
+			if ( event.editor.id === 'pmpro_email_template_body' ) {
+				event.editor.on( 'init', function() {
+					pmpro_set_email_template_body_disabled( $("#pmpro_email_template_disable").is(":checked") );
+				} );
+			}
+		} );
+	}
 
-            //show/hide stuff
-			$("#pmproet-spinner").hide();
-            $(".pmpro_admin .controls").show();
-            $(".pmpro_admin .hide-while-loading").show();
-            $(".pmpro_admin .status").hide();
+	if ( $("#pmpro_email_template_disable").is(":checked") ) {
+		pmpro_set_email_template_body_disabled( true );
+	}
 
-            //change disable text
-            if (template == 'header' || template === 'footer') {
+	function pmpro_save_template() {
 
-                $subject.hide();
-				$testemail.hide();
+		$("#pmpro_submit_template_data").attr("disabled", true);
+		$(".status").hide();
+		// console.log(template);
 
-                if(template == 'header')
-                    $("#disable_label").text("Disable email header for all PMPro emails?");
-                else
-                    $("#disable_label").text("Disable email footer for all PMPro emails?");
+		// Clean CC and BCC values before saving and update the fields.
+		var cc_val = pmpro_clean_email_list( $("#pmpro_email_template_cc").val() );
+		var bcc_val = pmpro_clean_email_list( $("#pmpro_email_template_bcc").val() );
+		$("#pmpro_email_template_cc").val( cc_val );
+		$("#pmpro_email_template_bcc").val( bcc_val );
 
-                //hide description
-                $("#disable_description").hide();
-            }
-            else {
-                $testemail.show();
-				$("#disable_label").text("Disable this email?");
-                $("#disable_description").show().text("PMPro emails with this template will not be sent.");
-            }
+		// Sync the visual editor to the textarea before reading its value, but
+		// only when TinyMCE is the active mode. When the user is in Text mode,
+		// the textarea already holds the live edits and calling editor.save()
+		// would overwrite them with the iframe's stale content.
+		var editor = pmpro_email_template_body_editor();
+		if ( editor && ! editor.isHidden() ) {
+			editor.save();
+		}
 
-            // populate help text, subject, and body
-            $('#pmpro_email_template_help_text').text(template_data['help_text']);
+		$data = {
+			template: $template,
+			subject: $("#pmpro_email_template_subject").val(),
+			body: $("#pmpro_email_template_body").val(),
+			to: $("#pmpro_email_template_to").val(),
+			cc: cc_val,
+			bcc: bcc_val,
+			action: 'pmpro_email_templates_save_template_data',
+			security: $('input[name=security]').val()
+		};
+		return $.post(ajaxurl, $data, function (response) {
+			if (response != 0) {
+				$(".status_message_wrapper").addClass('updated');
+			}
+			else {
+				$(".status_message_wrapper").addClass("error");
+			}
+			$("#pmpro_submit_template_data").attr("disabled", false);
+			$(".status_message").html(response);
+			$(".status_message").show();
+			$('html, body').animate({ scrollTop : 0 }, 'fast');
+		});
+	}
+
+	function pmpro_reset_template() {
+
+		var r = confirm('Are you sure? Your current template settings will be deleted permanently.');
+
+		if (!r) return false;
+
+		$data = {
+			template: $template,
+			action: 'pmpro_email_templates_reset_template_data',
+			security: $('input[name=security]').val()
+		};
+		$.post(ajaxurl, $data, function (response) {
+			var template_data = $.parseJSON(response);
 			$('#pmpro_email_template_subject').val(template_data['subject']);
 			$('#pmpro_email_template_body').val(template_data['body']);
+			var editor = pmpro_email_template_body_editor();
+			if ( editor ) {
+				editor.setContent( template_data['body'] );
+			}
+			$('#pmpro_email_template_to').val(template_data['to']);
+			$('#pmpro_email_template_cc').val(template_data['cc']);
+			$('#pmpro_email_template_bcc').val(template_data['bcc']);
+			$(".status_message_wrapper").addClass('updated');
+			$(".status_message").html('Template Reset');
+			$(".status_message").show();
+			$('html, body').animate({ scrollTop : 0 }, 'fast');
+		});
 
-            // disable form
-            disabled = template_data['disabled'];
-            pmpro_toggle_form_disabled(disabled);
-        });
-    }
+		return true;
+	}
 
-    function pmpro_save_template() {
+	function pmpro_disable_template() {
 
-        $("#submit_template_data").attr("disabled", true);
-        $(".status").hide();
-        // console.log(template);
+		//update wp_options
+		data = {
+			template: $template,
+			action: 'pmpro_email_templates_disable_template',
+			disabled: $("#pmpro_email_template_disable").is(":checked"),
+			security: $('input[name=security]').val()
+		};
 
-        $data = {
-            template: template,
-            subject: $("#pmpro_email_template_subject").val(),
-            body: $("#pmpro_email_template_body").val(),
-            action: 'pmpro_email_templates_save_template_data',
-            security: $('input[name=security]').val()
-        };
-        $.post(ajaxurl, $data, function(response) {
-            if(response != 0) {
-                $(".status_message_wrapper").addClass('updated');
-            }
-            else {
-                $(".status_message_wrapper").addClass("error");
-            }
-            $("#submit_template_data").attr("disabled", false);
-            $(".status_message").html(response);
-            $(".status").show();
-            $(".status_message").show();
-        });
+		$.post(ajaxurl, data, function (response) {
 
-		return $.Deferred().resolve();
-    }
+			response = JSON.parse(response);
 
-    function pmpro_reset_template() {
+			//failure
+			if (response['result'] == false) {
+				$(".status_message_wrapper").addClass("error");
+				$(".status_message").show().text("There was an error updating your template settings.");
+			}
+			else {
+				if (response['status'] == 'true') {
+					$(".status_message_wrapper").addClass("updated");
+					$(".status_message").show().text("Template Disabled");
+					$(".pmpro_tag-success").addClass("pmpro_tag-alert");
+					$(".pmpro_tag-success").removeClass("pmpro_tag-success");
+					$(".pmpro_tag-alert").text("Disabled");
+				}
+				else {
+					$(".status_message_wrapper").addClass("updated");
+					$(".status_message").show().text("Template Enabled");
+					$(".pmpro_tag-alert").addClass("pmpro_tag-success");
+					$(".pmpro_tag-alert").removeClass("pmpro_tag-alert");
+					$(".pmpro_tag-success").text("Enabled");
+				}
+			}
 
-        var r = confirm('Are you sure? Your current template settings will be deleted permanently.');
+			$('html, body').animate({ scrollTop : 0 }, 'fast');
 
-        if(!r) return false;
+			disabled = response['status'];
 
-        $data = {
-            template: template,
-            action: 'pmpro_email_templates_reset_template_data',
-            security: $('input[name=security]').val()
-        };
-        $.post(ajaxurl, $data, function(response) {
-            var template_data = $.parseJSON(response);
-            $('#pmpro_email_template_subject').val(template_data['subject']);
-            $('#pmpro_email_template_body').val(template_data['body']);
-        });
+			pmpro_toggle_form_disabled(disabled);
+		});
+	}
 
-        return true;
-    }
+	function pmpro_send_test_email() {
 
-    function pmpro_disable_template() {
+		data = {
+			template: $template,
+			email: $("#test_email_address").val(),
+			action: 'pmpro_email_templates_send_test',
+			security: $('input[name=security]').val()
+		};
 
-        //update wp_options
-        data = {
-            template: template,
-            action: 'pmpro_email_templates_disable_template',
-            disabled: $("#pmpro_email_template_disable").is(":checked"),
-            security: $('input[name=security]').val()
-        };
+		$.post(ajaxurl, data, function (success) {
 
-        $.post(ajaxurl, data, function(response) {
+			if (success) {
+				$(".status_message_wrapper").addClass("updated").removeClass("error");
+				$(".status_message").show().text("Test email sent successfully.");
+			}
+			else {
+				$(".status_message_wrapper").addClass("error").removeClass("updated");
+				$(".status_message").show().text("Test email failed.");
+			}
 
-            response = JSON.parse(response);
+		})
+	}
 
-            //failure
-            if(response['result'] == false) {
-                $(".status_message_wrapper").addClass("error");
-                $(".status_message").show().text("There was an error updating your template settings.");
-            }
-            else {
-                if(response['status'] == 'true') {
-                    $(".status_message_wrapper").addClass("updated");
-                    $(".status_message").show().text("Template Disabled");
-                }
-                else {
-                    $(".status_message_wrapper").addClass("updated");
-                    $(".status_message").show().text("Template Enabled");
-                }
-            }
+	function pmpro_toggle_form_disabled(disabled) {
+		pmpro_set_email_template_body_disabled( disabled );
 
-            $(".hide-while-loading").show();
+		if (disabled == 'true') {
+			$("#pmpro_email_template_disable").prop('checked', true);
+			$("#pmpro_email_template_subject").attr('readonly', 'readonly').attr('disabled', 'disabled');
+			$("#pmpro_email_template_to").attr('readonly', 'readonly').attr('disabled', 'disabled');
+			$("#pmpro_email_template_cc").attr('readonly', 'readonly').attr('disabled', 'disabled');
+			$("#pmpro_email_template_bcc").attr('readonly', 'readonly').attr('disabled', 'disabled');
+		}
+		else {
+			$("#pmpro_email_template_disable").prop('checked', false);
+			$("#pmpro_email_template_subject").removeAttr('readonly', 'readonly').removeAttr('disabled', 'disabled');
+			$("#pmpro_email_template_to").removeAttr('readonly', 'readonly').removeAttr('disabled', 'disabled');
+			$("#pmpro_email_template_cc").removeAttr('readonly', 'readonly').removeAttr('disabled', 'disabled');
+			$("#pmpro_email_template_bcc").removeAttr('readonly', 'readonly').removeAttr('disabled', 'disabled');
+		}
 
-            disabled = response['status'];
-
-            pmpro_toggle_form_disabled(disabled);
-        });
-    }
-
-    function pmpro_send_test_email() {
-
-        //hide stuff and show ajax spinner
-        $(".hide-while-loading").hide();
-        $("#pmproet-spinner").show();
-
-        data = {
-            template: template,
-            email: $("#test_email_address").val(),
-            action: 'pmpro_email_templates_send_test',
-            security: $('input[name=security]').val()
-        };
-
-        $.post(ajaxurl, data, function(success) {
-            //show/hide stuff
-            $("#pmproet-spinner").hide();
-            $(".pmpro_admin .controls").show();
-            $(".pmpro_admin .hide-while-loading").show();
-
-            if(success) {
-                $(".status_message_wrapper").addClass("updated").removeClass("error");
-                $(".status_message").show().text("Test email sent successfully.");
-            }
-            else {
-                $(".status_message_wrapper").addClass("error").removeClass("updated");
-                $(".status_message").show().text("Test email failed.");
-            }
-
-        })
-    }
-
-    function pmpro_toggle_form_disabled(disabled) {
-        if(disabled == 'true') {
-            $("#pmpro_email_template_disable").prop('checked', true);
-            $("#pmpro_email_template_body").attr('readonly', 'readonly').attr('disabled', 'disabled');
-            $("#pmpro_email_template_subject").attr('readonly', 'readonly').attr('disabled', 'disabled');
-            $(".pmpro_admin .controls").hide();
-        }
-        else {
-            $("#pmpro_email_template_disable").prop('checked', false);
-            $("#pmpro_email_template_body").removeAttr('readonly','readonly').removeAttr('disabled', 'disabled');
-            $("#pmpro_email_template_subject").removeAttr('readonly','readonly').removeAttr('disabled', 'disabled');
-            $(".pmpro_admin .controls").show();
-        }
-
-    }
+	}
 
 });
+
+// Design Settings.
+jQuery(document).ready(function () {
+	// Preview color changes by updating the #pmpro_global_style_colors inline styles.
+	jQuery('.pmpro_color_picker').on('change', function () {
+		var baseColor = jQuery('#pmpro_base_color').val();
+		var contrastColor = jQuery('#pmpro_contrast_color').val();
+		var accentColor = jQuery('#pmpro_accent_color').val();
+
+		jQuery('#pmpro_global_style_colors').html(':root { --pmpro--color--base: ' + baseColor + '; --pmpro--color--contrast: ' + contrastColor + '; --pmpro--color--accent: ' + accentColor + '; }');
+	});
+});
+
+// Add Ons Page Code.
+jQuery(document).ready(function () {
+
+	// If we're on the add ons admin page
+	if (jQuery('#pmpro-admin-add-ons-list').length) {
+
+		// Scoped helper object for Add Ons page (keeps readability while avoiding duplication).
+		var pmproAddOnsHelpers = {
+			progressText: {
+				'activate': 'Activating...',
+				'install': 'Installing...',
+				'update': 'Updating...',
+				'deactivate': 'Deactivating...',
+				'delete': 'Deleting...'
+			},
+			failText: {
+				'activate': 'Could Not Activate.',
+				'install': 'Could Not Install.',
+				'update': 'Could Not Update.',
+				'deactivate': 'Could Not Deactivate.',
+				'delete': 'Could Not Delete.'
+			},
+			recountFilters: function(){
+				var activeCount = jQuery('.add-on-container.add-on-active').length;
+				var inactiveCount = jQuery('.add-on-container.add-on-inactive').length;
+				var updateCount = jQuery('.add-on-container.add-on-needs-update').length;
+					function setCount($link, count, hide){
+					if(!$link.length){return;}
+					var baseLabel = $link.data('baseLabel');
+					if(!baseLabel){
+						baseLabel = jQuery.trim($link.text()).replace(/\s*\(\d+\)$/,'');
+						$link.data('baseLabel', baseLabel);
+					}
+					$link.text(count>0? baseLabel+' ('+count+')': baseLabel);
+						if(hide){ $link.closest('li').toggle(count>0); }
+				}
+					// Hide tabs whose count is zero for all three: active, inactive, update.
+					setCount(jQuery('.filter-links a[data-view="active"]'), activeCount, true);
+					setCount(jQuery('.filter-links a[data-view="inactive"]'), inactiveCount, true);
+					setCount(jQuery('.filter-links a[data-view="update"]'), updateCount, true);
+					// If current link becomes hidden, switch to All.
+					var $currentLink = jQuery('.filter-links a.current');
+					if ($currentLink.length && !$currentLink.closest('li').is(':visible')) {
+						jQuery('.filter-links a[data-view="all"]').trigger('click');
+					} else if (window.location.hash) {
+						var hashView = window.location.hash.replace('#','');
+						var $hashLink = jQuery('.filter-links a[data-view="' + hashView + '"]');
+						if ($hashLink.length && !$hashLink.closest('li').is(':visible')) {
+							jQuery('.filter-links a[data-view="all"]').trigger('click');
+						}
+					}
+			},
+			applyCurrentFilter: function(){
+				var $current = jQuery('.filter-links a.current');
+				if($current.length){ $current.trigger('click'); }
+			},
+			// Ensure the actions dropdown exists and reflects current status (installed states only).
+			buildOrUpdateMenu: function(container, status, plugin_file, nonce){
+				var $details = container.find('> .add-on-item > .details');
+				if(!$details.length){ return; }
+				var $btn = $details.children('.dropdown-arrow');
+				var $menu = $details.children('.pmpro-add-on-actions-menu');
+				// Only show dropdown for installed plugins (active/inactive).
+				if(status !== 'active' && status !== 'inactive'){
+					$btn.remove();
+					$menu.remove();
+					return;
+				}
+				if(!$btn.length){
+					$btn = jQuery(
+						'<button type="button" class="dropdown-arrow" aria-haspopup="true" aria-expanded="false">\n'
+						+ '\t<span class="screen-reader-text">Toggle actions menu</span>\n'
+						+ '\t<span class="dashicons dashicons-ellipsis"></span>\n'
+						+ '</button>'
+					);
+					$details.prepend($btn);
+				}
+				if(!$menu.length){
+					$menu = jQuery(
+						'<div class="pmpro-add-on-actions-menu" role="menu" aria-hidden="true">\n'
+						+ '\t<ul></ul>\n'
+						+ '</div>'
+					);
+					$btn.after($menu);
+				}
+				// Build menu items
+				var $ul = $menu.children('ul');
+				$ul.empty();
+				// First item: Activate or Deactivate
+				var firstAction = (status === 'inactive') ? 'activate' : 'deactivate';
+				var firstLabel = (status === 'inactive') ? 'Activate' : 'Deactivate';
+				$ul.append(
+					'<li>'
+					+ '\t<button type="button" role="menuitem" class="pmproAddOnActionButton action-' + firstAction + '">' + firstLabel + '</button>'
+					+ '\t<input type="hidden" name="pmproAddOnAdminAction" value="' + firstAction + '" />'
+					+ '\t<input type="hidden" name="pmproAddOnAdminTarget" value="' + plugin_file + '" />'
+					+ '\t<input type="hidden" name="pmproAddOnAdminNonce" value="' + nonce + '" />'
+					+ '</li>'
+				);
+				// Divider + Uninstall
+				$ul.append(
+					'<li>'
+					+ '\t<button type="button" role="menuitem" class="pmproAddOnActionButton action-uninstall is-destructive">Uninstall</button>'
+					+ '\t<input type="hidden" name="pmproAddOnAdminAction" value="delete" />'
+					+ '\t<input type="hidden" name="pmproAddOnAdminTarget" value="' + plugin_file + '" />'
+					+ '\t<input type="hidden" name="pmproAddOnAdminNonce" value="' + nonce + '" />'
+					+ '</li>'
+				);
+			}
+		};
+
+		jQuery('#pmpro-admin-add-ons-list').on('click', '.pmproAddOnActionButton', function (e) {
+			e.preventDefault();
+
+			var button = jQuery(this);
+			var container = button.closest('.add-on-container');
+
+			// Make sure we only run once.
+			if (button.hasClass('disabled')) {
+				return;
+			}
+			button.addClass('disabled');
+
+			// Pull the action that we are performing on this button.
+			var action = button.siblings('input[name="pmproAddOnAdminAction"]').val();
+
+			if ('license' === action) {
+				// Get the add on name and the user's current license type and show banner.
+				document.getElementById('addon-name').innerHTML = button.siblings('input[name="pmproAddOnAdminName"]').val();
+				document.getElementById('addon-license').innerHTML = button.siblings('input[name="pmproAddOnAdminLicense"]').val();
+				jQuery('.pmpro-popup-overlay').show();
+				button.removeClass('disabled');
+				return false;
+			}
+
+			// Remove checkmark
+			button.removeClass('checkmarked');
+
+			// Update button text (progress state)
+			if (!pmproAddOnsHelpers.progressText[action]) {
+				button.removeClass('disabled');
+				return;
+			}
+			button.text(pmproAddOnsHelpers.progressText[action]);
+
+			// Build AJAX payload for new class endpoints
+			var target = button.siblings('input[name="pmproAddOnAdminTarget"]').val();
+			var nonce = button.siblings('input[name="pmproAddOnAdminNonce"]').val();
+			var ajaxAction = null;
+			if (action === 'install') ajaxAction = 'pmpro_addon_install';
+			if (action === 'update') ajaxAction = 'pmpro_addon_update';
+			if (action === 'activate') ajaxAction = 'pmpro_addon_activate';
+			if (action === 'deactivate') ajaxAction = 'pmpro_addon_deactivate';
+			if (action === 'delete') ajaxAction = 'pmpro_addon_delete';
+
+			// Send AJAX request
+			jQuery.post(ajaxurl, {
+				action: ajaxAction,
+				nonce: nonce,
+				target: target,
+				slug: (action === 'install' ? target : ''),
+			}).done(function(resp){
+				if (!resp || !resp.success) {
+					var msg = (resp && resp.data && resp.data.message) ? resp.data.message : 'Action failed.';
+					// Filesystem credentials needed
+					if (resp && resp.data && resp.data.code === 'pmpro_fs_credentials') {
+						button.text('Credentials required...');
+						if (window.wp && wp.updates && wp.updates.maybeRequestFilesystemCredentials) {
+							wp.updates.maybeRequestFilesystemCredentials({});
+						}
+					} else {
+						button.text(msg);
+					}
+					button.removeClass('disabled');
+					return;
+				}
+
+				var plugin_file = (resp && resp.data && resp.data.plugin_file) ? resp.data.plugin_file : null;
+				var slug = container.attr('id');
+				if(!plugin_file && slug){ plugin_file = slug + '/' + slug + '.php'; }
+				var mainButton = container.find('.action-button > .pmproAddOnActionButton');
+				var mainActionInput = mainButton.siblings('input[name="pmproAddOnAdminAction"]');
+				var mainTargetInput = mainButton.siblings('input[name="pmproAddOnAdminTarget"]');
+				var statusLabel = container.find('.add-on-status strong');
+				var dropdownBtn = container.find('.details > .dropdown-arrow');
+				var dropdownMenu = container.find('.pmpro-add-on-actions-menu');
+				var firstMenuBtn = dropdownMenu.find('button.pmproAddOnActionButton').first();
+				var firstMenuActionInput = firstMenuBtn.siblings('input[name="pmproAddOnAdminAction"]');
+
+				function setStatus(newStatus, statusText){
+					container.removeClass('add-on-active add-on-inactive add-on-uninstalled');
+					if(newStatus){ container.addClass('add-on-' + newStatus); }
+					if(statusLabel.length){
+						statusLabel.removeClass(function(i,c){ return (c.match(/status-\S+/g)||[]).join(' '); });
+						statusLabel.attr('class','status-' + newStatus).text(statusText);
+					}
+					// Update data-search-view tokens
+					var viewAttr = container.data('search-view');
+					if(viewAttr){
+						var parts = viewAttr.split(' ').filter(function(p){ return ['active','inactive','update'].indexOf(p) === -1; });
+						if(newStatus === 'active') parts.push('active');
+						if(newStatus === 'inactive') parts.push('inactive');
+						if(container.hasClass('add-on-needs-update')) parts.push('update');
+						var newView = parts.filter(function(v,i,a){ return a.indexOf(v)===i; }).join(' ');
+						container.attr('data-search-view', newView);
+						container.data('search-view', newView);
+					}
+				}
+
+				// Handle each action result
+				if (action === 'activate') {
+					button.text('Activated').addClass('checkmarked');
+					// Main button shows Active (disabled)
+					if(mainButton.length){
+						mainButton.text('Active').addClass('disabled').attr('disabled','disabled').attr('aria-disabled','true');
+						mainActionInput.val('');
+						mainTargetInput.val(plugin_file);
+					}
+					// Update dropdown first item to Deactivate
+					if(firstMenuBtn.length){
+						firstMenuBtn.text('Deactivate').removeClass('action-activate').addClass('action-deactivate');
+						firstMenuActionInput.val('deactivate');
+					}
+					setStatus('active', 'Active');
+				} else if (action === 'deactivate') {
+					button.text('Deactivated');
+					if(mainButton.length){
+						mainButton.text('Activate').removeClass('disabled').removeAttr('disabled').attr('aria-disabled','false').removeClass('checkmarked');
+						mainActionInput.val('activate');
+						mainTargetInput.val(plugin_file);
+					}
+					if(firstMenuBtn.length){
+						firstMenuBtn.text('Activate').removeClass('action-deactivate').addClass('action-activate');
+						firstMenuActionInput.val('activate');
+					}
+					setStatus('inactive', 'Inactive');
+				} else if (action === 'install') {
+					button.text('Installed');
+					// After install the plugin is inactive.
+					if(mainButton.length){
+						setTimeout(function(){
+							mainButton.text('Activate').removeClass('disabled checkmarked');
+							mainActionInput.val('activate');
+							mainTargetInput.val(plugin_file);
+						}, 600);
+					}
+					// Ensure actions menu exists/updated now that it's installed.
+					pmproAddOnsHelpers.buildOrUpdateMenu(container, 'inactive', plugin_file, nonce);
+					setStatus('inactive', 'Inactive');
+				} else if (action === 'update') {
+					button.text('Updated').addClass('checkmarked');
+					container.removeClass('add-on-needs-update');
+					// If active keep Active label, else ensure main button is Activate
+					if(mainButton.length){
+						if(container.hasClass('add-on-active')){
+							mainButton.text('Active').addClass('disabled').attr('disabled','disabled').attr('aria-disabled','true');
+						}else{
+							mainButton.text('Activate').removeClass('disabled');
+							mainActionInput.val('activate');
+							mainTargetInput.val(plugin_file);
+						}
+					}
+					// Update search view attribute removing update token
+					var viewAttr2 = container.data('search-view');
+					if(viewAttr2){
+						var parts2 = viewAttr2.split(' ').filter(function(p){ return p !== 'update'; });
+						container.attr('data-search-view', parts2.join(' '));
+						container.data('search-view', parts2.join(' '));
+					}
+				} else if (action === 'delete') {
+					button.text('Deleted').removeClass('checkmarked');
+					// Switch to uninstalled state
+					setStatus('uninstalled', 'Not Installed');
+					if(mainButton.length){
+						setTimeout(function(){
+							mainButton.text('Install').removeClass('disabled checkmarked').removeAttr('disabled').attr('aria-disabled','false');
+							mainActionInput.val('install');
+							mainTargetInput.val(slug); // target is slug for install
+						}, 600);
+					}
+					// Remove dropdown
+					dropdownBtn.remove();
+					dropdownMenu.remove();
+				}
+
+				pmproAddOnsHelpers.recountFilters();
+				pmproAddOnsHelpers.applyCurrentFilter();
+
+				// Re-enable after success for possible further actions (except transient states already swapped)
+				setTimeout(function(){
+					button.removeClass('disabled');
+				}, 400);
+			}).fail(function(){
+				button.text(pmproAddOnsHelpers.failText[action] || 'Action failed.');
+				button.removeClass('disabled').removeClass('checkmarked');
+			});
+		});
+	}
+});
+
+// Add On Action Dropdown (toggle + accessibility)
+jQuery(document).ready(function(){
+		// If we're on the add ons admin page
+	if (jQuery('#pmpro-admin-add-ons-list').length) {
+	
+		var $doc = jQuery(document);
+
+		function closeAllAddonMenus(except){
+			jQuery('#pmpro-admin-add-ons-list .add-on-item .dropdown-arrow').attr('aria-expanded','false');
+			jQuery('#pmpro-admin-add-ons-list .add-on-item .pmpro-add-on-actions-menu').attr('aria-hidden','true');
+			jQuery('#pmpro-admin-add-ons-list .add-on-item').removeClass('is-open');
+			if (except) {
+				except.attr('aria-expanded','true')
+					.closest('.add-on-item').addClass('is-open')
+					.find('.pmpro-add-on-actions-menu').attr('aria-hidden','false');
+			}
+		}
+
+		$doc.on('click', '#pmpro-admin-add-ons-list .add-on-item .dropdown-arrow', function(e){
+			e.preventDefault();
+			var $btn = jQuery(this);
+			var isOpen = $btn.attr('aria-expanded') === 'true';
+			if (isOpen) {
+				closeAllAddonMenus();
+			} else {
+				closeAllAddonMenus($btn);
+				// Focus first actionable item for keyboard users
+				setTimeout(function(){
+					var $first = $btn.next('.pmpro-add-on-actions-menu').find('button:not([disabled])').first();
+					if ($first.length) { $first.trigger('focus'); }
+				}, 15);
+			}
+		});
+
+		// Keyboard navigation inside menu
+		$doc.on('keydown', '#pmpro-admin-add-ons-list .pmpro-add-on-actions-menu', function(e){
+			var $items = jQuery(this).find('button:not([disabled])');
+			if (!$items.length) { return; }
+			var idx = $items.index(document.activeElement);
+			if (e.key === 'ArrowDown') { e.preventDefault(); idx = (idx + 1) % $items.length; $items.eq(idx).focus(); }
+			else if (e.key === 'ArrowUp') { e.preventDefault(); idx = (idx - 1 + $items.length) % $items.length; $items.eq(idx).focus(); }
+			else if (e.key === 'Home') { e.preventDefault(); $items.eq(0).focus(); }
+			else if (e.key === 'End') { e.preventDefault(); $items.eq($items.length - 1).focus(); }
+			else if (e.key === 'Escape') { e.preventDefault(); closeAllAddonMenus(); }
+		});
+
+		// Close when clicking outside
+		$doc.on('click', function(e){
+			if (!jQuery(e.target).closest('#pmpro-admin-add-ons-list .add-on-item .pmpro-add-on-actions-menu, #pmpro-admin-add-ons-list .add-on-item .dropdown-arrow').length) {
+				closeAllAddonMenus();
+			}
+		});
+
+		// Close on Escape from anywhere
+		$doc.on('keyup', function(e){ if (e.key === 'Escape') { closeAllAddonMenus(); } });
+	}
+});
+
+/**
+ * Add/Edit Member Page
+ */
+window.addEventListener("DOMContentLoaded", () => {
+	const tabs = document.querySelectorAll('#pmpro-edit-user-div [role="tab"]');
+	const tabList = document.querySelector('#pmpro-edit-user-div [role="tablist"]');
+	const inputs = document.querySelectorAll('#pmpro-edit-user-div input, #pmpro-edit-user-div textarea, #pmpro-edit-user-div select');
+
+	if ( tabs && tabList ) {
+		// Track whether an input has been changed.
+		let inputChanged = false;
+		inputs.forEach((input) => {
+			input.addEventListener('change', function(e) {
+				inputChanged = true;
+			});
+		});
+
+		// Add a click event handler to each tab
+		tabs.forEach((tab) => {
+			tab.addEventListener("click", function (e) {
+				if ( pmpro_changeTabs(e, inputChanged ) ) {
+					// If we changed tabs, reset the inputChanged flag.
+					inputChanged = false;
+
+					// Hide the PMPro message.
+					const pmproMessage = document.querySelector('#pmpro_message');
+					if ( pmproMessage ) {
+						pmproMessage.style.display = 'none';
+					}
+				}
+			});
+		});
+
+		// Enable arrow navigation between tabs in the tab list
+		let tabFocus = 0;
+		tabList.addEventListener("keydown", (e) => {
+		// Move Down
+		if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+			tabs[tabFocus].setAttribute("tabindex", -1);
+			if (e.key === "ArrowDown") {
+			tabFocus++;
+			// If we're at the end, go to the start
+			if (tabFocus >= tabs.length) {
+				tabFocus = 0;
+			}
+			// Move Up
+			} else if (e.key === "ArrowUp") {
+			tabFocus--;
+			// If we're at the start, move to the end
+			if (tabFocus < 0) {
+				tabFocus = tabs.length - 1;
+			}
+			}
+
+			tabs[tabFocus].setAttribute("tabindex", 0);
+			tabs[tabFocus].focus();
+		}
+		});
+
+		// Enable the button to show more tabs.
+		document.addEventListener('click', function(e) {
+			const moreTabsToggle = e.target.closest('[role="showmore"]');
+			if (moreTabsToggle) {
+				e.preventDefault();
+				const parent = moreTabsToggle.parentNode;
+				const grandparent = parent.parentNode;
+				grandparent.querySelectorAll('[role="tab"]').forEach((t) => t.style.display = 'block');
+				parent.style.display = 'none';
+			}
+		});
+
+		// If the visible panel's corresponding tab is hidden, show all tabs.
+		const visiblePanel = document.querySelector('#pmpro-edit-user-div [role="tabpanel"]:not([hidden])');
+		if ( visiblePanel ) {
+			const visibleTab = document.querySelector(`[aria-controls="${visiblePanel.id}"]`);
+			if ( visibleTab.style.display === 'none' ) {
+				const moreTabsToggle = document.querySelector('[role="showmore"]');
+				moreTabsToggle.click();
+			}
+		}
+
+	}
+
+});
+
+function pmpro_changeTabs( e, inputChanged ) {
+	e.preventDefault();
+
+	if ( inputChanged ) {
+		const answer = window.confirm('You have unsaved changes. Are you sure you want to switch tabs?');
+		if ( ! answer ) {
+			return false;
+		}
+	}
+
+	const target = e.target;
+	const parent = target.parentNode;
+	const grandparent = parent.parentNode;
+
+	// Remove all current selected tabs
+	parent
+	.querySelectorAll('[aria-selected="true"]')
+	.forEach((t) => t.setAttribute("aria-selected", false));
+
+	// Set this tab as selected
+	target.setAttribute("aria-selected", true);
+
+	// Hide all tab panels
+	grandparent
+	.querySelectorAll('[role="tabpanel"]')
+	.forEach((p) => p.setAttribute("hidden", true));
+
+	// Show the selected panel
+	grandparent.parentNode
+	.querySelector(`#${target.getAttribute("aria-controls")}`)
+	.removeAttribute("hidden");
+
+	// Update the URL to include the panel URL in the pmpro_member_edit_panel attribute.
+	const fullPanelName = target.getAttribute('aria-controls');
+	// Need to convert pmpro-member-edit-xyz-panel to xyz.
+	const panelSlug = fullPanelName.replace(/^pmpro-member-edit-/, '').replace(/-panel$/, '');
+	const url = new URL(window.location.href);
+	url.searchParams.set('pmpro_member_edit_panel', panelSlug);
+	window.history.pushState({}, '', url);
+
+	return true;
+}
+
+/**
+ * Edit Order Page
+ */
+jQuery(document).ready(function () {
+	jQuery('.pmpro_admin-pmpro-orders select#membership_id').select2();
+});
+
+/**
+ * Report Widgets - Collapsed Row Toggles
+ */
+jQuery(document).ready(function () {
+	jQuery('.pmpro_report_th').on('click',function(event) {
+		//prevent form submit onclick
+		event.preventDefault();
+
+		//toggle sub rows
+		jQuery(this).closest('tbody').find('.pmpro_report_tr_sub').toggle();
+
+		//change arrow
+		if(jQuery(this).hasClass('pmpro_report_th_closed')) {
+			jQuery(this).removeClass('pmpro_report_th_closed');
+			jQuery(this).addClass('pmpro_report_th_opened');
+		} else {
+			jQuery(this).removeClass('pmpro_report_th_opened');
+			jQuery(this).addClass('pmpro_report_th_closed');
+		}
+	});
+});
+
+// Dynamic Exports Button (Members, Orders, etc.)
+// Handles csv exports via Action Scheduler with large datasets.
+jQuery(document).ready(function ($) {
+	// Reusable export handler. Looks for buttons with class .pmpro-export-button
+	// and manages lifecycle: start, poll, download. Uses REST endpoints.
+	var exportButton = '.pmpro-export-button';
+
+	// Centralized labels for button states
+	var EXPORT_STATES = {
+		idle: 'Export to CSV',
+		preparing: 'Preparing…',
+		running: 'Building CSV…',
+		complete: 'Download CSV',
+		error: 'Export Error',
+		error_start: 'Error Starting Export'
+	};
+
+	function setButtonState($btn, text, status){
+		if(!$btn || !$btn.length){ return; }
+		$btn.text(text);
+		$btn.attr('data-status', status);
+	}
+
+	function setButtonStateKey($btn, status){
+		// Compute label
+		var label = EXPORT_STATES[status];
+		if(typeof label === 'function'){
+			label = label();
+		}
+
+		// Base visual state: secondary
+		$btn.removeClass('button-primary');
+		$btn.prop('disabled', false);
+
+		// Preparing/running: disabled secondary
+		if(status === 'preparing' || status === 'running'){
+			$btn.prop('disabled', true);
+		}
+
+		// Complete: switch to primary (blue) and enable
+		if(status === 'complete'){
+			$btn.addClass('button-primary');
+			$btn.prop('disabled', false);
+		}
+
+		// Errors: keep secondary and enable so user can retry
+		if(status && (status === 'error' || status === 'error_start')){
+			$btn.prop('disabled', false);
+		}
+
+		setButtonState($btn, label, status);
+	}
+
+	function beginPolling($btn){
+		if($btn.data('polling')){ return; }
+		$btn.data('polling', true);
+		var interval = setInterval(function(){ pollStatus($btn); }, 5000);
+		$btn.data('pollInterval', interval);
+	}
+
+	function stopPolling($btn){
+		$btn.data('polling', false);
+		var interval = $btn.data('pollInterval');
+		if(interval){ clearInterval(interval); $btn.data('pollInterval', null); }
+	}
+
+	function startExport($btn){
+		if(($btn.attr('data-status')||'idle') !== 'idle'){ return; }
+		var type = $btn.data('type') || 'members';
+		var filters = $btn.data('filters') || {};
+		if (typeof filters === 'string') { try { filters = JSON.parse(filters); } catch(e){ filters = {}; } }
+		setButtonStateKey($btn, 'preparing');
+		var payload = Object.assign({ type: type }, filters);
+		var startUrl = $btn.data('startUrl') || ($btn.data('start-url')) || (window.wpApiSettings && wpApiSettings.root ? (wpApiSettings.root + 'pmpro/v1/export/start') : null);
+		var nonce = $btn.data('nonce') || (window.wpApiSettings && wpApiSettings.nonce);
+		if(!startUrl || !nonce){ setButtonState($btn, 'Error', 'error'); return; }
+		fetch(startUrl, {
+			method: 'POST',
+			headers: { 'Content-Type':'application/json', 'X-WP-Nonce': nonce },
+			body: JSON.stringify(payload)
+		}).then(function(r){ return r.json(); }).then(function(data){
+			if(data && data.error){
+				setButtonStateKey($btn, 'error_start');
+				return;
+			}
+			$btn.attr('data-export-id', data.export_id || '');
+			if(data.status === 'complete' && data.download_url){
+				setButtonStateKey($btn, 'complete');
+				$btn.off('click.pmproExport').on('click.pmproExport', function(e){
+					e.preventDefault();
+					window.location = data.download_url;
+					// Reset state shortly after triggering download
+					setTimeout(function(){
+						setButtonStateKey($btn, 'idle');
+						$btn.attr('data-export-id','');
+						// Rebind default click handler to start exports again
+						$btn.off('click.pmproExport').on('click.pmproExport', function(ev){
+							ev.preventDefault();
+							if($btn.attr('data-status') === 'running'){ return; }
+							startExport($btn);
+						});
+					}, 500);
+				});
+			} else {
+				setButtonStateKey($btn, 'running');
+				beginPolling($btn);
+			}
+		}).catch(function(){ setButtonStateKey($btn, 'error'); });
+	}
+
+	function pollStatus($btn){
+		var exportId = $btn.attr('data-export-id');
+		if(!exportId){ stopPolling($btn); return; }
+		var type = $btn.data('type') || 'members';
+		var statusUrlBase = $btn.data('statusUrl') || ($btn.data('status-url')) || (window.wpApiSettings && wpApiSettings.root ? (wpApiSettings.root + 'pmpro/v1/export/status') : null);
+		var nonce = $btn.data('nonce') || (window.wpApiSettings && wpApiSettings.nonce);
+		if(!statusUrlBase || !nonce){ stopPolling($btn); return; }
+		var url = new URL(statusUrlBase);
+		url.searchParams.set('type', type);
+		url.searchParams.set('export_id', exportId);
+		fetch(url.toString(), { headers: { 'X-WP-Nonce': nonce } })
+			.then(function(r){ return r.json(); })
+			.then(function(data){
+				if(data && data.error){ setButtonStateKey($btn, 'error'); stopPolling($btn); return; }
+				if(data.status === 'complete' && data.download_url){
+					setButtonStateKey($btn, 'complete');
+					$btn.off('click.pmproExport').on('click.pmproExport', function(e){
+						e.preventDefault();
+						window.location = data.download_url;
+						// Reset state to idle for next export
+						setTimeout(function(){
+							setButtonStateKey($btn, 'idle');
+							$btn.attr('data-export-id','');
+							$btn.off('click.pmproExport').on('click.pmproExport', function(ev){
+								ev.preventDefault();
+								if($btn.attr('data-status') === 'running'){ return; }
+								startExport($btn);
+							});
+						}, 500);
+					});
+					stopPolling($btn);
+			return;
+		}
+		if(data.status === 'error'){ setButtonStateKey($btn, 'error'); stopPolling($btn); return; }
+		setButtonStateKey($btn, 'running');
+	})
+	.catch(function(){
+		setButtonStateKey($btn, 'error');
+		stopPolling($btn);
+	 });
+	}
+
+	function resumeIfActive($btn){
+		var type = $btn.data('type') || 'members';
+		var statusUrlBase = $btn.data('statusUrl') || ($btn.data('status-url')) || (window.wpApiSettings && wpApiSettings.root ? (wpApiSettings.root + 'pmpro/v1/export/status') : null);
+		var nonce = $btn.data('nonce') || (window.wpApiSettings && wpApiSettings.nonce);
+		if(!statusUrlBase || !nonce){ return; }
+		var url = new URL(statusUrlBase);
+		url.searchParams.set('type', type);
+		fetch(url.toString(), { headers: { 'X-WP-Nonce': nonce } })
+			.then(function(r){ return r.json(); })
+			.then(function(data){
+				if(data && !data.error && data.export_id){
+					$btn.attr('data-export-id', data.export_id);
+					if(data.status === 'complete' && data.download_url){
+						setButtonStateKey($btn, 'complete');
+						$btn.off('click.pmproExport').on('click.pmproExport', function(e){
+							e.preventDefault();
+							window.location = data.download_url;
+							// Reset after download and rebind default start handler
+							setTimeout(function(){
+								setButtonStateKey($btn, 'idle');
+								$btn.attr('data-export-id','');
+								$btn.off('click.pmproExport').on('click.pmproExport', function(ev){
+									ev.preventDefault();
+									if($btn.attr('data-status') === 'running'){ return; }
+									startExport($btn);
+								});
+							}, 500);
+						});
+					} else if(data.status === 'running' || data.status === 'queued'){
+						setButtonStateKey($btn, 'running');
+						beginPolling($btn);
+					}
+				}
+			})
+			.catch(function(){ /* ignore */ });
+	}
+
+	// Initialize: wire up all export buttons.
+	var $buttons = $(exportButton);
+	if($buttons.length){
+		$buttons.each(function(){
+			var $btn = $(this);
+			// Default idle state
+			if(!$btn.attr('data-status')){ setButtonStateKey($btn, 'idle'); }
+
+
+			// Resume if there is an active export
+			resumeIfActive($btn);
+			// Click: start or noop if running; if complete, reset to idle after click
+			$btn.off('click.pmproExport').on('click.pmproExport', function(e){
+				e.preventDefault();
+				if($btn.attr('data-status') === 'complete'){
+					setTimeout(function(){ setButtonStateKey($btn, 'idle'); $btn.attr('data-export-id',''); $btn.off('click.pmproExport'); }, 500);
+					return;
+				}
+				if($btn.attr('data-status') === 'running'){ return; }
+				startExport($btn);
+			});
+		});
+	}
+});
+
+/**
+ * Email Log - View Email Details Modal
+ */
+jQuery(document).ready(function($) {
+	// View email log details via REST API
+	$(document).on('click', '.pmpro-view-email-log', function(e) {
+		e.preventDefault();
+		var logId = $(this).data('log-id');
+
+		// Use WordPress REST API
+		$.ajax({
+			url: pmpro.rest_url + 'pmpro/v1/email_log_popup',
+			type: 'GET',
+			data: {
+				log_id: logId
+			},
+			beforeSend: function(xhr) {
+				xhr.setRequestHeader('X-WP-Nonce', pmpro.nonce);
+			},
+			success: function(response) {
+				if (response && response.html) {
+					$('#pmpro-email-log-content').html(response.html);
+					// Show as popup overlay
+					$('#pmpro-popup').show();
+				}
+			},
+			error: function() {
+				$('#pmpro-email-log-content').html('<p style="color: red;">' + 'Error loading email log details.' + '</p>');
+				$('#pmpro-popup').show();
+			}
+		});
+	});
+
+	// Toggle between formatted and raw HTML view for email body
+	$(document).on('change', '.pmpro-email-body-view-toggle', function() {
+		var $toggle = $(this);
+		var $container = $toggle.closest('.pmpro-email-log-details');
+		var $formatted = $container.find('.pmpro-email-body-formatted');
+		var $raw = $container.find('.pmpro-email-body-raw');
+
+		if ($toggle.is(':checked')) {
+			// Show raw HTML view
+			$formatted.hide();
+			$raw.show();
+		} else {
+			// Show formatted view
+			$raw.hide();
+			$formatted.show();
+		}
+	});
+});
+
+/**
+ * Quick Search
+ */
+jQuery(document).ready(function($) {
+	// Dynamically update the select width to fit selected option
+	pmproqsUpdateSelectWidth();
+
+	var searchTimeout = null;
+
+	var activeIndex = -1;
+
+	// Helper: Measure select option text width and update CSS variable
+	function pmproqsMeasureTextWidth(text, refEl) {
+		// Create a hidden span to measure text width using the select's font styles
+		var span = document.createElement('span');
+		span.style.position = 'absolute';
+		span.style.visibility = 'hidden';
+		span.style.whiteSpace = 'pre';
+		// Copy relevant font styles from the reference element (the <select>)
+		var cs = window.getComputedStyle(refEl);
+		span.style.fontFamily = cs.fontFamily;
+		span.style.fontSize = cs.fontSize;
+		span.style.fontWeight = cs.fontWeight;
+		span.style.fontStyle = cs.fontStyle;
+		span.style.letterSpacing = cs.letterSpacing;
+		span.textContent = text;
+		document.body.appendChild(span);
+		var width = span.getBoundingClientRect().width;
+		document.body.removeChild(span);
+		return width;
+	}
+
+	function pmproqsUpdateSelectWidth() {
+		var selectEl = document.getElementById('pmpro_quick_search_type');
+		if (!selectEl) return;
+		var text = selectEl.options[selectEl.selectedIndex].text;
+		// Measure the text and add space for the native arrow + padding + borders.
+		var textW = pmproqsMeasureTextWidth(text, selectEl);
+		var extra = 28; // approx. arrow + borders
+		var padding = 12; // matches padding in CSS (2px 4px) plus a little buffer
+		var computedWidth = Math.ceil(textW + extra + padding);
+		// Apply via CSS variable so input padding-left stays in sync
+		var container = document.querySelector('.pmpro_quick_search');
+		if (container) {
+			container.style.setProperty('--pmproqs-select-w', computedWidth + 'px');
+		}
+	}
+
+	function getResultRows() {
+		return $('.pmpro_quick_search_results tbody tr:has(a)');
+	}
+
+	function setActive(index) {
+		var rows = getResultRows();
+		rows.removeClass('is-active');
+		if (!rows.length) {
+			activeIndex = -1;
+			return;
+		}
+		// wrap the index
+		var len = rows.length;
+		activeIndex = ((index % len) + len) % len;
+		$(rows[activeIndex]).addClass('is-active');
+	}
+
+	function moveActive(delta) {
+		if (getResultRows().length === 0) return;
+		if (activeIndex === -1) {
+			setActive(0);
+		} else {
+			setActive(activeIndex + delta);
+		}
+	}
+
+	function activateSelection() {
+		var rows = getResultRows();
+		if (!rows.length || activeIndex === -1) return;
+		var link = $(rows[activeIndex]).find('a').get(0);
+		if (link) {
+			if (link.target === '_blank') {
+				window.open(link.href, '_blank');
+			} else {
+				window.location = link.href;
+			}
+		}
+	}
+
+	function performSearch() {
+		var query = $('.pmpro_quick_search input').val();
+		var searchType = $('#pmpro_quick_search_type').val() || 'all';
+
+		// If the query is empty, clear results and return.
+		var resultsDiv = $('.pmpro_quick_search_results');
+		if (query.trim() === '') {
+			resultsDiv.hide().empty();
+			return;
+		}
+
+		// Perform AJAX request to get search results
+		$.ajax({
+			url: pmpro.rest_url + 'pmpro/v1/quick_search',
+			method: 'GET',
+			data: {
+				search: query,
+				type: searchType,
+			},
+			beforeSend: function(xhr) {
+				xhr.setRequestHeader('X-WP-Nonce', pmpro.nonce);
+			},
+			success: function(response) {
+				// Display results in a dropdown below the input
+				resultsDiv.empty();
+				if (response.success) {
+					resultsDiv.html(response.data);
+				} else {
+					resultsDiv.html('An error occurred while searching. Please try again.');
+				}
+				resultsDiv.show();
+				// highlight first available result
+				activeIndex = -1;
+				setActive(0);
+				// allow mouse hover to change the active row without stealing focus
+				getResultRows().off('mouseenter.pmproqs').on('mouseenter.pmproqs', function(){
+					var idx = getResultRows().index(this);
+					setActive(idx);
+				});
+			},
+			error: function() {
+				alert('An error occurred while searching. Please try again.');
+			}
+		});
+	}
+
+	$('.pmpro_quick_search input').on('input', function() {
+		$('.pmpro_quick_search_results').hide();
+		clearTimeout(searchTimeout);
+		// TODO: Adjust delay as needed. Maybe add a filter.
+		searchTimeout = setTimeout(performSearch, 250);
+	});
+
+	$('#pmpro_quick_search_type').on('change', function(){
+		pmproqsUpdateSelectWidth();
+		$('.pmpro_quick_search_results').hide();
+		clearTimeout(searchTimeout);
+		activeIndex = -1;
+		searchTimeout = setTimeout(performSearch, 0);
+	});
+
+	$('.pmpro_quick_search input').on('keydown', function(e) {
+		// Only intercept navigation keys; let everything else (e.g. Cmd/Ctrl+A) pass through
+		if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			moveActive(1);
+			return;
+		}
+		if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			moveActive(-1);
+			return;
+		}
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			activateSelection();
+			return;
+		}
+	});
+
+	// Hide results when clicking outside
+	$(document).on('click', function(e) {
+		if (!$(e.target).closest('.pmpro_quick_search').length) {
+			$('.pmpro_quick_search_results').hide();
+		}
+	});
+	// Optionally improve first render robustness: recalc after layout is stable
+	setTimeout(pmproqsUpdateSelectWidth, 0);
+});
+
+/**
+ * Checklist "Select: All | None" controls for pmpro_build_settings_field() checklist fields.
+ *
+ * Delegated so it works for any checklist on the page. Each control toggles every checkbox within
+ * its own .pmpro_checkbox_list wrapper. Replaces the old per-checklist inline <script> blocks.
+ */
+jQuery( function ( $ ) {
+	$( document ).on( 'click', '[data-pmpro-check-all]', function ( e ) {
+		e.preventDefault();
+		$( this ).closest( '.pmpro_checkbox_list' ).find( 'input[type="checkbox"]' ).prop( 'checked', true );
+	} );
+	$( document ).on( 'click', '[data-pmpro-check-none]', function ( e ) {
+		e.preventDefault();
+		$( this ).closest( '.pmpro_checkbox_list' ).find( 'input[type="checkbox"]' ).prop( 'checked', false );
+	} );
+} );
+
+/**
+ * Declarative field visibility for pmpro_build_settings_field() `depends`.
+ *
+ * Any element with data-pmpro-depends (a JSON array of conditions) is shown/hidden based on the
+ * live state of the inputs it references. Conditions are ANDed by default; add
+ * data-pmpro-depends-or="1" for OR. Condition shapes:
+ *   { "id": "some_input_id", "checked": true }               // checkbox/radio checked state
+ *   { "id": "some_input_id", "value": "stripe" }             // input/select value equals
+ *   { "id": "some_input_id", "value": ["stripe", "check"] }  // input/select value is one of these
+ */
+jQuery( function ( $ ) {
+	function pmproDependsConditionMet( cond ) {
+		var el = document.getElementById( cond.id );
+		if ( ! el ) {
+			return false;
+		}
+		if ( typeof cond.checked !== 'undefined' ) {
+			return !! el.checked === !! cond.checked;
+		}
+		var val = ( el.type === 'checkbox' || el.type === 'radio' ) ? ( el.checked ? el.value : '' ) : el.value;
+		if ( Array.isArray( cond.value ) ) {
+			return cond.value.map( String ).indexOf( String( val ) ) !== -1;
+		}
+		return String( val ) === String( cond.value );
+	}
+
+	function pmproApplyDepends() {
+		$( '[data-pmpro-depends]' ).each( function () {
+			var conditions;
+			try {
+				conditions = JSON.parse( this.getAttribute( 'data-pmpro-depends' ) );
+			} catch ( e ) {
+				return;
+			}
+			if ( ! Array.isArray( conditions ) || ! conditions.length ) {
+				return;
+			}
+			var useOr   = this.getAttribute( 'data-pmpro-depends-or' ) === '1';
+			var visible = useOr ? conditions.some( pmproDependsConditionMet ) : conditions.every( pmproDependsConditionMet );
+			$( this ).toggleClass( 'pmpro-hidden', ! visible );
+		} );
+	}
+
+	// Re-evaluate when any control changes, and once on load to correct the initial state. The
+	// 'input' event keeps text and textarea conditions responsive as the user types, since those
+	// controls only fire 'change' on blur. Code that sets a value programmatically should
+	// .trigger( 'change' ) so dependent elements update.
+	$( document ).on( 'change input', 'input, select, textarea', pmproApplyDepends );
+	pmproApplyDepends();
+} );

@@ -2,16 +2,46 @@
 /*
 	Clean things up when deletes happen, etc. (This stuff needs a better home.)
 */
-// deleting a user? remove their account info.
-function pmpro_delete_user( $user_id = null ) {
 
-	// changing their membership level to 0 will cancel any subscription and remove their membership level entry
-	// we don't remove the orders because it would affect reporting
-	if ( pmpro_changeMembershipLevel( 0, $user_id ) ) {
-		// okay
-	} else {
-		// okay, guessing they didn't have a level
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Cleans up PMPro custom tables, which have no WordPress API or object cache layer.
+
+// deleting a user? remove their account info.
+function pmpro_delete_user( $user_id ) {
+	global $pmpro_user_taxonomies;
+
+	if ( empty( $user_id ) ) {
+		return false;
 	}
+
+	// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Runs on delete_user/wpmu_delete_user; WordPress core verifies the nonce (check_admin_referer 'delete-users' in wp-admin/users.php, 'ms-users-delete' in wp-admin/network/users.php) before deleting. These are checkboxes from that same form.
+	// Check if an admin chose to cancel the user's active subscriptions.
+	$cancel_active_subscriptions =  isset( $_REQUEST['pmpro_delete_active_subscriptions'] ) && $_REQUEST['pmpro_delete_active_subscriptions'] == '1';
+
+	/**
+	 * Filter to set whether or not to cancel active subscriptions when a user is deleted.
+	 *
+	 * @since 2.12
+	 *
+	 * @param bool $cancel_active_subscriptions True or false.
+	 * @param int  $user_id                     The WordPress user ID.
+	 */
+	if ( apply_filters( 'pmpro_user_deletion_cancel_active_subscriptions', $cancel_active_subscriptions, $user_id ) ) {
+		foreach ( pmpro_getMembershipLevelsForUser( $user_id ) as $level ) {
+			pmpro_cancelMembershipLevel( $level->id, $user_id );
+		}
+	}
+
+	//Remove all membership history for this user from the pmpro_memberships_users table
+	if ( isset( $_REQUEST['pmpro_delete_member_history'] ) && 
+		$_REQUEST['pmpro_delete_member_history'] == '1' ) {
+		pmpro_delete_membership_history( $user_id );
+	}	
+	// phpcs:enable WordPress.Security.NonceVerification.Recommended
+	
 }
 add_action( 'delete_user', 'pmpro_delete_user' );
 add_action( 'wpmu_delete_user', 'pmpro_delete_user' );
@@ -20,9 +50,12 @@ add_action( 'wpmu_delete_user', 'pmpro_delete_user' );
  * Show a notice on the Delete User form so admin knows that membership and subscriptions will be cancelled.
  *
  * @param WP_User $current_user WP_User object for the current user.
- * @param int[]   $userids      Array of IDs for users being deleted.
+ * @param array   $userids      Array of IDs for users being deleted.
+ * @since 2.10
  */
 function pmpro_delete_user_form_notice( $current_user, $userids ) {
+
+	global $wpdb;
 	// Check if any users for deletion have an an active membership level.
 	foreach ( $userids as $user_id ) {
 		$userids_have_levels = pmpro_hasMembershipLevel( null, $user_id );
@@ -31,23 +64,62 @@ function pmpro_delete_user_form_notice( $current_user, $userids ) {
 		}
 	}
 
+	// Build one %d placeholder per user ID so each is checked, not just the first.
+	$member_history = 0;
+	if ( ! empty( $userids ) ) {
+		$userids      = array_map( 'intval', $userids );
+		$placeholders = implode( ',', array_fill( 0, count( $userids ), '%d' ) );
+
+		$sqlQuery = $wpdb->prepare(
+			"SELECT COUNT(*) as members FROM $wpdb->pmpro_memberships_users WHERE user_id IN ($placeholders)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- $placeholders is a list of %d placeholders built with array_fill.
+			$userids
+		);
+
+		$member_history = $wpdb->get_var( $sqlQuery ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- prepared above with $wpdb->prepare().
+	}
+
+	// Make sure that there is actually PMPro content to delete for these users.
+	if ( empty( $userids_have_levels ) && empty( $member_history ) ) {
+		// No PMPro content to delete, so we don't need to add anything to the form.
+		return;
+	}
+
+	$allowed_html = array( 'strong' => array() );
+
+	?>
+	<div class='pmpro_delete_user_actions'>
+		<p><?php esc_html_e( 'What should be done with the PMPro Membership data for these users?', 'paid-memberships-pro' ); ?></p>
+	<?php
 	// Show a notice if users for deletion have an an active membership level.
 	if ( ! empty( $userids_have_levels ) ) { ?>
 		<div class="notice notice-error inline">
 			<?php
 			if ( count( $userids ) > 1 ) {
-				_e( '<p><strong>Warning:</strong> One or more users for deletion have an active membership level. Deleting a user will also cancel their membership and recurring subscription.</p>', 'paid-memberships-pro' );
+				echo '<p>' . wp_kses( __( '<strong>Warning:</strong> One or more users for deletion have an active membership level.', 'paid-memberships-pro' ), $allowed_html ) . '</p>' ;
 			} else {
-				_e( '<p><strong>Warning:</strong> This user has an active membership level. Deleting a user will also cancel their membership and recurring subscription.</p>', 'paid-memberships-pro' );
+				echo  '<p>' . wp_kses( __( '<strong>Warning:</strong> This user has an active membership level.', 'paid-memberships-pro' ), $allowed_html ) . '</p>';
 			}
 			?>
 		</div>
+		<p><input type='checkbox' name='pmpro_delete_active_subscriptions' id='pmpro_delete_active_subscriptions' value='1' /><label for='pmpro_delete_active_subscriptions'><?php esc_html_e('Cancel any related membership levels first. This may trigger cancellations at the gateway or other third party services.', 'paid-memberships-pro' ); ?></label></p>
 		<?php
 	}
+		
+
+	if ( intval( $member_history ) > 0 ) {
+		?>
+		<p><input type='checkbox' name='pmpro_delete_member_history' id='pmpro_delete_member_history' value='1' /><label for='pmpro_delete_member_history'><?php esc_html_e('Delete any related membership history. Order history will be retained.', 'paid-memberships-pro' ); ?></label></p>
+		<?php
+	}
+	?>
+	</div>
+	<?php
+
 }
 add_action( 'delete_user_form', 'pmpro_delete_user_form_notice', 10, 2 );
 
-// deleting a category? remove any level associations
+// deleting a term in a restrictable taxonomy? remove any level associations
+// Hooked to delete_{$taxonomy} for every restrictable taxonomy in pmpro_init_term_restrictions().
 function pmpro_delete_category( $cat_id = null ) {
 	global $wpdb;
 	$wpdb->delete(
@@ -56,7 +128,6 @@ function pmpro_delete_category( $cat_id = null ) {
 		'%d'
 	);
 }
-add_action( 'delete_category', 'pmpro_delete_category' );
 
 // deleting a post? remove any level associations
 function pmpro_delete_post( $post_id = null ) {
@@ -68,3 +139,82 @@ function pmpro_delete_post( $post_id = null ) {
 	);
 }
 add_action( 'delete_post', 'pmpro_delete_post' );
+
+// trashing or deleting a post? clear any PMPro page settings that use it
+function pmpro_clear_page_settings_for_post( $post_id = null ) {
+	global $pmpro_pages;
+
+	if ( empty( $post_id ) || empty( $pmpro_pages ) ) {
+		return;
+	}
+
+	$cleared = array();
+	foreach ( $pmpro_pages as $name => $page_id ) {
+		if ( (int) $page_id === (int) $post_id ) {
+			update_option( 'pmpro_' . $name . '_page_id', 0 );
+			$pmpro_pages[ $name ] = 0;
+			$cleared[] = $name;
+		}
+	}
+
+	// If trashed, remember which settings were cleared so they can be restored on untrash.
+	if ( ! empty( $cleared ) && 'trashed_post' === current_action() ) {
+		update_post_meta( $post_id, '_pmpro_cleared_page_settings', $cleared );
+	}
+}
+add_action( 'trashed_post', 'pmpro_clear_page_settings_for_post' );
+add_action( 'deleted_post', 'pmpro_clear_page_settings_for_post' );
+
+// restoring a post from the trash? reassign any PMPro page settings cleared when it was trashed
+function pmpro_restore_page_settings_for_post( $post_id = null ) {
+	global $pmpro_pages;
+
+	if ( empty( $post_id ) ) {
+		return;
+	}
+
+	$cleared = get_post_meta( $post_id, '_pmpro_cleared_page_settings', true );
+	if ( empty( $cleared ) || ! is_array( $cleared ) ) {
+		return;
+	}
+
+	foreach ( $cleared as $name ) {
+		// Don't overwrite a page that was reassigned while this one was in the trash.
+		if ( empty( get_option( 'pmpro_' . $name . '_page_id' ) ) ) {
+			update_option( 'pmpro_' . $name . '_page_id', $post_id );
+			$pmpro_pages[ $name ] = $post_id;
+		}
+	}
+
+	delete_post_meta( $post_id, '_pmpro_cleared_page_settings' );
+}
+add_action( 'untrashed_post', 'pmpro_restore_page_settings_for_post' );
+
+/**
+ * Delete all membership data for a specific user from the membership users table.
+ *
+ * @param int $user_id The WordPress user ID.
+ * @since 2.10
+ */
+function pmpro_delete_membership_history( $user_id ) {
+
+	if ( empty( $user_id ) ) {
+		return false;
+	}
+	
+	global $wpdb;
+	$wpdb->delete( 
+		$wpdb->pmpro_memberships_users, 
+		array( 'user_id' => $user_id ), 
+		array( '%d' )
+	);
+
+	// Delete email log entries for this user.
+	$wpdb->delete(
+		$wpdb->pmpro_email_log,
+		array( 'user_id' => $user_id ),
+		array( '%d' )
+	);
+
+	// we don't remove the orders because it would affect reporting
+}

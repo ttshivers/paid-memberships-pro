@@ -1,4 +1,8 @@
 <?php
+	if ( ! defined( 'ABSPATH' ) ) {
+		exit;
+	}
+
 	//include pmprogateway
 	require_once(dirname(__FILE__) . "/class.pmprogateway.php");
 
@@ -42,6 +46,25 @@
 		}
 
 		/**
+		 * Check whether or not a gateway supports a specific feature.
+		 *
+		 * @since 3.0
+		 *
+		 * @return string|boolean $supports Returns whether or not the gateway supports the requested feature.
+		 */
+		public static function supports( $feature ) {
+			$supports = array(
+				'subscription_sync' => false,
+			);
+
+			if ( empty( $supports[$feature] ) ) {
+				return false;
+			}
+
+			return $supports[$feature];
+		}
+
+		/**
 		 * Get a list of payment options that the this gateway needs/supports.
 		 *
 		 * @since 1.8
@@ -49,18 +72,14 @@
 		static function getGatewayOptions()
 		{
 			$options = array(
-				'sslseal',
-				'nuclear_HTTPS',
 				'gateway_environment',
 				'payflow_partner',
 				'payflow_vendor',
 				'payflow_user',
 				'payflow_pwd',
 				'currency',
-				'use_ssl',
 				'tax_state',
 				'tax_rate',
-				'accepted_credit_cards',
 			);
 
 			return $options;
@@ -98,7 +117,7 @@
 		</tr>
 		<tr class="gateway gateway_payflowpro" <?php if($gateway != "payflowpro") { ?>style="display: none;"<?php } ?>>
 		    <th scope="row" valign="top">
-				<label for="payflow_partner"><?php esc_html_e('Partner', 'paid-memberships-pro' );?>:</label>
+				<label for="payflow_partner"><?php esc_html_e('Partner', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="payflow_partner" name="payflow_partner" value="<?php echo esc_attr($values['payflow_partner'])?>" class="regular-text code" />
@@ -106,7 +125,7 @@
 	    </tr>
 	    <tr class="gateway gateway_payflowpro" <?php if($gateway != "payflowpro") { ?>style="display: none;"<?php } ?>>
 		    <th scope="row" valign="top">
-				<label for="payflow_vendor"><?php esc_html_e('Vendor', 'paid-memberships-pro' );?>:</label>
+				<label for="payflow_vendor"><?php esc_html_e('Vendor', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="payflow_vendor" name="payflow_vendor" value="<?php echo esc_attr($values['payflow_vendor'])?>" class="regular-text code" />
@@ -114,7 +133,7 @@
 	    </tr>
 	    <tr class="gateway gateway_payflowpro" <?php if($gateway != "payflowpro") { ?>style="display: none;"<?php } ?>>
 		    <th scope="row" valign="top">
-				<label for="payflow_user"><?php esc_html_e('User', 'paid-memberships-pro' );?>:</label>
+				<label for="payflow_user"><?php esc_html_e('User', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="payflow_user" name="payflow_user" value="<?php echo esc_attr($values['payflow_user'])?>" class="regular-text code" />
@@ -122,7 +141,7 @@
 	    </tr>
 	    <tr class="gateway gateway_payflowpro" <?php if($gateway != "payflowpro") { ?>style="display: none;"<?php } ?>>
 		    <th scope="row" valign="top">
-				<label for="payflow_pwd"><?php esc_html_e('Password', 'paid-memberships-pro' );?>:</label>
+				<label for="payflow_pwd"><?php esc_html_e('Password', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="password" id="payflow_pwd" name="payflow_pwd" value="<?php echo esc_attr($values['payflow_pwd'])?>" class="regular-text code" />
@@ -130,7 +149,7 @@
 	    </tr>
 		<tr class="gateway gateway_payflowpro" <?php if($gateway != "payflowpro") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label><?php esc_html_e('IPN Handler', 'paid-memberships-pro' );?>:</label>
+				<label><?php esc_html_e('IPN Handler', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<p class="description">
@@ -156,15 +175,13 @@
 		 */
 		function process(&$order)
 		{
-			if(floatval($order->InitialPayment) == 0)
+			if(floatval($order->subtotal) == 0)
 			{
 				//auth first, then process
 				$authorization_id = $this->authorize($order);
 				if($authorization_id)
 				{
 					$this->void($order, $authorization_id);
-					$order->ProfileStartDate = date_i18n("Y-m-d\TH:i:s", strtotime("+ " . $order->BillingFrequency . " " . $order->BillingPeriod, current_time("timestamp")));
-					$order->ProfileStartDate = apply_filters("pmpro_profile_start_date", $order->ProfileStartDate, $order);
 					return $this->subscribe($order);
 				}
 				else
@@ -182,8 +199,6 @@
 					//set up recurring billing
 					if(pmpro_isLevelRecurring($order->membership_level))
 					{
-						$order->ProfileStartDate = date_i18n("Y-m-d\TH:i:s", strtotime("+ " . $order->BillingFrequency . " " . $order->BillingPeriod, current_time("timestamp")));
-						$order->ProfileStartDate = apply_filters("pmpro_profile_start_date", $order->ProfileStartDate, $order);
 						if($this->subscribe($order))
 						{
 							return true;
@@ -226,11 +241,8 @@
 			$nvpStr = "";
 
 			$nvpStr .="&AMT=1.00";
-			/* PayFlow Pro doesn't use IPN so this is a little confusing */
-			// $nvpStr .= "&NOTIFYURL=" . urlencode( add_query_arg( 'action', 'ipnhandler', admin_url('admin-ajax.php') ) );
-			//$nvpStr .= "&L_BILLINGTYPE0=RecurringPayments&L_BILLINGAGREEMENTDESCRIPTION0=" . $order->PaymentAmount;
 
-			$nvpStr .= "&CUSTIP=" . $_SERVER['REMOTE_ADDR'] . "&INVNUM=" . $order->code;
+			$nvpStr .= "&CUSTIP=" . pmpro_get_ip() . "&INVNUM=" . $order->code;
 
 			//credit card fields
 			if($order->cardtype == "American Express")
@@ -239,15 +251,20 @@
 				$cardtype = $order->cardtype;
 
 			if(!empty($order->accountnumber))
-				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . $order->CVV2;
+				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . ( empty( $_REQUEST['CVV'] ) ? '' : sanitize_text_field( wp_unslash( $_REQUEST['CVV'] ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Called during checkout or billing update; nonce verified in preheaders/checkout.php or preheaders/billing.php.
 
 			//billing address, etc
-			if(!empty($order->Address1))
+			if(!empty($order->billing->street))
 			{
-				$nvpStr .= "&EMAIL=" . $order->Email . "&FIRSTNAME=" . $order->FirstName . "&LASTNAME=" . $order->LastName . "&STREET=" . $order->Address1;
+				$user = get_userdata($order->user_id);
+				$nameparts = pnp_split_full_name( $order->billing->name );
+				$fname = empty( $nameparts['fname'] ) ? '' : $nameparts['fname'];
+				$lname = empty( $nameparts['lname'] ) ? '' : $nameparts['lname'];
+				$email = empty( $user->user_email ) ? '' : $user->user_email;
+				$nvpStr .= "&EMAIL=" . $email . "&FIRSTNAME=" . $fname . "&LASTNAME=" . $lname . "&STREET=" . $order->billing->street;
 
-				if($order->Address2)
-					$nvpStr .= " " . $order->Address2;
+				if($order->billing->street2)
+					$nvpStr .= " " . $order->billing->street2;
 
 				$nvpStr .= "&CITY=" . $order->billing->city . "&STATE=" . $order->billing->state . "&BILLTOCOUNTRY=" . $order->billing->country . "&ZIP=" . $order->billing->zip . "&PHONENUM=" . $order->billing->phone;
 			}
@@ -313,10 +330,8 @@
 				$order->code = $order->getRandomCode();
 
 			//taxes on the amount
-			$amount = $order->InitialPayment;
-			$amount_tax = $order->getTaxForPrice($amount);
-			$order->subtotal = $amount;
-			$amount = pmpro_round_price_as_string((float)$amount + (float)$amount_tax);
+			$amount_tax = $order->getTax(true);
+			$amount = pmpro_round_price_as_string((float)$order->subtotal + (float)$amount_tax);
 
 			//paypal profile stuff
 			$nvpStr = "";
@@ -336,22 +351,23 @@
 
 			$nvpStr .="&AMT=" . $amount . "&TAXAMT=" . $amount_tax . "&CURRENCY=" . $pmpro_currency;
 
-			/* PayFlow Pro doesn't use IPN so this is a little confusing */
-			// $nvpStr .= "&NOTIFYURL=" . urlencode( add_query_arg( 'action', 'ipnhandler', admin_url('admin-ajax.php') ) );
-			//$nvpStr .= "&L_BILLINGTYPE0=RecurringPayments&L_BILLINGAGREEMENTDESCRIPTION0=" . $order->PaymentAmount;
-
-			$nvpStr .= "&CUSTIP=" . $_SERVER['REMOTE_ADDR'] . "&INVNUM=" . $order->code;
+			$nvpStr .= "&CUSTIP=" . pmpro_get_ip() . "&INVNUM=" . $order->code;
 
 			if(!empty($order->accountnumber))
-				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . $order->CVV2;
+				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . ( empty( $_REQUEST['CVV'] ) ? '' : sanitize_text_field( wp_unslash( $_REQUEST['CVV'] ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Called during checkout or billing update; nonce verified in preheaders/checkout.php or preheaders/billing.php.
 
 			//billing address, etc
-			if($order->Address1)
+			if($order->billing->street)
 			{
-				$nvpStr .= "&EMAIL=" . $order->Email . "&FIRSTNAME=" . $order->FirstName . "&LASTNAME=" . $order->LastName . "&STREET=" . $order->Address1;
+				$nameparts = pnp_split_full_name( $order->billing->name );
+				$fname = empty( $nameparts['fname'] ) ? '' : $nameparts['fname'];
+				$lname = empty( $nameparts['lname'] ) ? '' : $nameparts['lname'];
+				$user = get_userdata($order->user_id);
+				$email = empty( $user->user_email ) ? '' : $user->user_email;
+				$nvpStr .= "&EMAIL=" . $email . "&FIRSTNAME=" . $fname . "&LASTNAME=" . $lname . "&STREET=" . $order->billing->street;
 
-				if($order->Address2)
-					$nvpStr .= " " . $order->Address2;
+				if($order->billing->street2)
+					$nvpStr .= " " . $order->billing->street2;
 
 				$nvpStr .= "&CITY=" . $order->billing->city . "&STATE=" . $order->billing->state . "&BILLTOCOUNTRY=" . $order->billing->country . "&ZIP=" . $order->billing->zip . "&PHONENUM=" . $order->billing->phone;
 			}
@@ -390,17 +406,18 @@
 			$order = apply_filters("pmpro_subscribe_order", $order, $this);
 
 			//taxes on the amount
-			$amount = $order->PaymentAmount;
+			$level = $order->getMembershipLevelAtCheckout();
+			$amount = $level->billing_amount;
 			$amount_tax = $order->getTaxForPrice($amount);
 			$amount = pmpro_round_price_as_string((float)$amount + (float)$amount_tax);
 
-			if($order->BillingPeriod == "Day")
+			if( $level->cycle_period == "Day")
 				$payperiod = "DAYS";
-			elseif($order->BillingPeriod == "Week")
+			elseif( $level->cycle_period == "Week")
 				$payperiod = "WEEK";
-			elseif($order->BillingPeriod == "Month")
+			elseif( $level->cycle_period == "Month")
 				$payperiod = "MONT";
-			elseif($order->BillingPeriod == "Year")
+			elseif( $level->cycle_period == "Year")
 				$payperiod = "YEAR";
 
 			//paypal profile stuff
@@ -418,79 +435,60 @@
 
 			$nvpStr .="&AMT=" . $amount . "&TAXAMT=" . $amount_tax . "&CURRENCY=" . $pmpro_currency;
 
-			/* PayFlow Pro doesn't use IPN so this is a little confusing */
-			// $nvpStr .= "&NOTIFYURL=" . urlencode( add_query_arg( 'action', 'ipnhandler', admin_url('admin-ajax.php') ) );
-			//$nvpStr .= "&L_BILLINGTYPE0=RecurringPayments&L_BILLINGAGREEMENTDESCRIPTION0=" . $order->PaymentAmount;
-
 			$nvpStr .= "&PROFILENAME=" . urlencode( apply_filters( 'pmpro_paypal_level_description', substr($order->membership_level->name . " at " . get_bloginfo("name"), 0, 127), $order->membership_level->name, $order, get_bloginfo("name")) );
 
 			$nvpStr .= "&PAYPERIOD=" . $payperiod;
-			$nvpStr .= "&FREQUENCY=" . $order->BillingFrequency;
+			$nvpStr .= "&FREQUENCY=" . $level->cycle_number;
 
-			$nvpStr .= "&CUSTIP=" . $_SERVER['REMOTE_ADDR']; // . "&INVNUM=" . $order->code;
+			$nvpStr .= "&CUSTIP=" . pmpro_get_ip(); // . "&INVNUM=" . $order->code;
 
 			//if billing cycles are defined
-			if(!empty($order->TotalBillingCycles))
-				$nvpStr .= "&TERM=" . $order->TotalBillingCycles;
+			if(!empty($level->billing_limit))
+				$nvpStr .= "&TERM=" . $level->billing_limit;
 			else
 				$nvpStr .= "&TERM=0";
 
 			if(!empty($order->accountnumber))
-				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . $order->CVV2;
+				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . ( empty( $_REQUEST['CVV'] ) ? '' : sanitize_text_field( wp_unslash( $_REQUEST['CVV'] ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Called during checkout or billing update; nonce verified in preheaders/checkout.php or preheaders/billing.php.
 
-			/*
-				Let's figure out the start date. There are two parts.
-				1. We need to add the billing period to the start date to account for the initial payment.
-				2. We can allow for free trials by further delaying the start date of the subscription.
-			*/
-			if($order->BillingPeriod == "Year")
-				$trial_period_days = $order->BillingFrequency * 365;	//annual
-			elseif($order->BillingPeriod == "Day")
-				$trial_period_days = $order->BillingFrequency * 1;		//daily
-			elseif($order->BillingPeriod == "Week")
-				$trial_period_days = $order->BillingFrequency * 7;		//weekly
-			else
-				$trial_period_days = $order->BillingFrequency * 30;	//assume monthly
-
-			//convert to a profile start date
-			$order->ProfileStartDate = date_i18n("Y-m-d\TH:i:s", strtotime("+ " . $trial_period_days . " Day", current_time("timestamp")));
-
-			//filter the start date
-			$order->ProfileStartDate = apply_filters("pmpro_profile_start_date", $order->ProfileStartDate, $order);
-
-			//convert back to days
-			$trial_period_days = ceil(abs(strtotime(date_i18n("Y-m-d"), current_time('timestamp')) - strtotime($order->ProfileStartDate, current_time("timestamp"))) / 86400);
+			// Get the profile start date.
+			$trial_period_days = ceil(abs(strtotime(date_i18n("Y-m-d"), current_time('timestamp')) - pmpro_calculate_profile_start_date( $order, 'U' ) ) / 86400);
 
 			//now add the actual trial set by the site
-			if(!empty($order->TrialBillingCycles))
+			if(!empty($level->trial_limit))
 			{
-				$trialOccurrences = (int)$order->TrialBillingCycles;
-				if($order->BillingPeriod == "Year")
-					$trial_period_days = $trial_period_days + (365 * $order->BillingFrequency * $trialOccurrences);	//annual
-				elseif($order->BillingPeriod == "Day")
-					$trial_period_days = $trial_period_days + (1 * $order->BillingFrequency * $trialOccurrences);		//daily
-				elseif($order->BillingPeriod == "Week")
-					$trial_period_days = $trial_period_days + (7 * $order->BillingFrequency * $trialOccurrences);	//weekly
+				$trialOccurrences = (int)$level->trial_limit;
+				if( $level->cycle_period == "Year")
+					$trial_period_days = $trial_period_days + (365 * $level->cycle_number * $trialOccurrences);	//annual
+				elseif( $level->cycle_period == "Day")
+					$trial_period_days = $trial_period_days + (1 * $level->cycle_number * $trialOccurrences);		//daily
+				elseif( $level->cycle_period == "Week")
+					$trial_period_days = $trial_period_days + (7 * $level->cycle_number * $trialOccurrences);	//weekly
 				else
-					$trial_period_days = $trial_period_days + (30 * $order->BillingFrequency * $trialOccurrences);	//assume monthly
+					$trial_period_days = $trial_period_days + (30 * $level->cycle_number * $trialOccurrences);	//assume monthly
 			}
 
 			//convert back into a date
-			$order->ProfileStartDate = date_i18n("Y-m-d\TH:i:s", strtotime("+ " . $trial_period_days . " Day", current_time("timestamp")));
+			$profile_start_date = date_i18n("Y-m-d\TH:i:s", strtotime("+ " . $trial_period_days . " Day", current_time("timestamp")));
 
 			//start date
-			$nvpStr .= "&START=" . date_i18n("mdY", strtotime($order->ProfileStartDate));
+			$nvpStr .= "&START=" . date_i18n("mdY", strtotime($profile_start_date));
 
 			if(!empty($order->accountnumber))
-				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . $order->CVV2;
+				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . ( empty( $_REQUEST['CVV'] ) ? '' : sanitize_text_field( wp_unslash( $_REQUEST['CVV'] ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Called during checkout or billing update; nonce verified in preheaders/checkout.php or preheaders/billing.php.
 
 			//billing address, etc
-			if($order->Address1)
+			if($order->billing->street)
 			{
-				$nvpStr .= "&EMAIL=" . $order->Email . "&FIRSTNAME=" . $order->FirstName . "&LASTNAME=" . $order->LastName . "&STREET=" . $order->Address1;
+				$nameparts = pnp_split_full_name( $order->billing->name );
+				$fname = empty( $nameparts['fname'] ) ? '' : $nameparts['fname'];
+				$lname = empty( $nameparts['lname'] ) ? '' : $nameparts['lname'];
+				$user = get_userdata($order->user_id);
+				$email = empty( $user->user_email ) ? '' : $user->user_email;
+				$nvpStr .= "&EMAIL=" . $email . "&FIRSTNAME=" . $fname . "&LASTNAME=" . $lname . "&STREET=" . $order->billing->street;
 
-				if($order->Address2)
-					$nvpStr .= " " . $order->Address2;
+				if($order->billing->street2)
+					$nvpStr .= " " . $order->billing->street2;
 
 				$nvpStr .= "&CITY=" . $order->billing->city . "&STATE=" . $order->billing->state . "&BILLTOCOUNTRY=" . $order->billing->country . "&ZIP=" . $order->billing->zip . "&PHONENUM=" . $order->billing->phone;
 			}
@@ -540,18 +538,23 @@
 
 			$nvpStr .= "&PROFILENAME=" . urlencode( apply_filters( 'pmpro_paypal_level_description', substr($order->membership_level->name . " at " . get_bloginfo("name"), 0, 127), $order->membership_level->name, $order, get_bloginfo("name")) );
 
-			$nvpStr .= "&CUSTIP=" . $_SERVER['REMOTE_ADDR']; // . "&INVNUM=" . $order->code;
+			$nvpStr .= "&CUSTIP=" . pmpro_get_ip(); // . "&INVNUM=" . $order->code;
 
 			if(!empty($order->accountnumber))
-				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . $order->CVV2;
+				$nvpStr .= "&ACCT=" . $order->accountnumber . "&EXPDATE=" . $order->expirationmonth . substr($order->expirationyear, 2, 2) . "&CVV2=" . ( empty( $_REQUEST['CVV'] ) ? '' : sanitize_text_field( wp_unslash( $_REQUEST['CVV'] ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Called during checkout or billing update; nonce verified in preheaders/checkout.php or preheaders/billing.php.
 
 			//billing address, etc
-			if($order->Address1)
+			if($order->billing->street)
 			{
-				$nvpStr .= "&EMAIL=" . $order->Email . "&FIRSTNAME=" . $order->FirstName . "&LASTNAME=" . $order->LastName . "&STREET=" . $order->Address1;
+				$nameparts = pnp_split_full_name( $order->billing->name );
+				$fname = empty( $nameparts['fname'] ) ? '' : $nameparts['fname'];
+				$lname = empty( $nameparts['lname'] ) ? '' : $nameparts['lname'];
+				$user = get_userdata($order->user_id);
+				$email = empty( $user->user_email ) ? '' : $user->user_email;
+				$nvpStr .= "&EMAIL=" . $email . "&FIRSTNAME=" . $fname . "&LASTNAME=" . $lname . "&STREET=" . $order->billing->street;
 
-				if($order->Address2)
-					$nvpStr .= " " . $order->Address2;
+				if($order->billing->street2)
+					$nvpStr .= " " . $order->billing->street2;
 
 				$nvpStr .= "&CITY=" . $order->billing->city . "&STATE=" . $order->billing->state . "&BILLTOCOUNTRY=" . $order->billing->country . "&ZIP=" . $order->billing->zip . "&PHONENUM=" . $order->billing->phone;
 			}
@@ -625,10 +628,10 @@
 			global $gateway_environment;
 			$environment = $gateway_environment;
 
-			$PARTNER = pmpro_getOption("payflow_partner");
-			$VENDOR = pmpro_getOption("payflow_vendor");
-			$USER = pmpro_getOption("payflow_user");
-			$PWD = pmpro_getOption("payflow_pwd");
+			$PARTNER = get_option("pmpro_payflow_partner");
+			$VENDOR = get_option("pmpro_payflow_vendor");
+			$USER = get_option("pmpro_payflow_user");
+			$PWD = get_option("pmpro_payflow_pwd");
 			$API_Endpoint = "https://payflowpro.paypal.com";
 			if("sandbox" === $environment || "beta-sandbox" === $environment) {
 				$API_Endpoint = "https://pilot-payflowpro.paypal.com";
@@ -642,7 +645,6 @@
 			//post to PayPal
 			$response = wp_remote_post( $API_Endpoint, array(
 					'timeout' => 60,
-					'sslverify' => FALSE,
 					'httpversion' => '1.1',
 					'body' => $nvpreq
 			    )
@@ -652,14 +654,14 @@
 
 			if ( is_wp_error( $response ) ) {
 			   $error_message = $response->get_error_message();
-			   wp_die( "{$methodName_} failed: $error_message" );
+			   wp_die( esc_html( "{$methodName_} failed: $error_message" ) );
 			} else {
 				//extract the response details
 				parse_str(wp_remote_retrieve_body($response), $httpParsedResponseAr);
 
 				//check for valid response
 				if((0 == sizeof($httpParsedResponseAr)) || !array_key_exists('RESULT', $httpParsedResponseAr)) {
-					exit("Invalid HTTP Response for POST request($nvpreq) to $API_Endpoint.");
+					exit( esc_html( "Invalid HTTP Response for POST request to $API_Endpoint.") );
 				}
 			}
 

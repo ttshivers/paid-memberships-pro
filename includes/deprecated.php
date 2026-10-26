@@ -5,26 +5,46 @@
  * @since  2.0
  */
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Deprecated functions query PMPro custom tables and options directly; there is no WordPress API or object cache layer for them.
+
 /**
  * Check for deprecated filters.
  */
 function pmpro_init_check_for_deprecated_filters() {
 	global $wp_filter;
-	
+
+	// Deprecated filter name => new filter name (or null if there is no alternative).
 	$pmpro_map_deprecated_filters = array(
-		'pmpro_getfile_extension_blocklist'    => 'pmpro_getfile_extension_blacklist',
+		'pmpro_getfile_extension_blacklist' => 'pmpro_getfile_extension_blocklist',
+		'pmprorh_section_header'            => 'pmpro_default_field_group_label',
+		'pmpro_stripe_subscription_deleted' => null,
+		'pmpro_subscription_cancelled'      => null,
+		'pmpro_longform_address'            => null,
+		'pmpro_include_cardtype_field'      => null,
+		'pmpro_paypal_button_image'         => null,
 	);
 	
-	foreach ( $pmpro_map_deprecated_filters as $new => $old ) {
+	foreach ( $pmpro_map_deprecated_filters as $old => $new ) {
 		if ( has_filter( $old ) ) {
-			/* translators: 1: the old hook name, 2: the new or replacement hook name */
-			trigger_error( sprintf( esc_html__( 'The %1$s hook has been deprecated in Paid Memberships Pro. Please use the %2$s hook instead.', 'paid-memberships-pro' ), $old, $new ) );
-			
-			// Add filters back using the new tag.
-			foreach( $wp_filter[$old]->callbacks as $priority => $callbacks ) {
-				foreach( $callbacks as $callback ) {
-					add_filter( $new, $callback['function'], $priority, $callback['accepted_args'] ); 
+			if ( ! empty( $new ) ) {
+				// We have an alternative filter. Let's show an error message and forward to that new filter.
+				/* translators: 1: the old hook name, 2: the new or replacement hook name */
+				trigger_error( esc_html( sprintf( esc_html__( 'The %1$s hook has been deprecated in Paid Memberships Pro. Please use the %2$s hook instead.', 'paid-memberships-pro' ), $old, $new ) ) );
+				
+				// Add filters back using the new tag.
+				foreach( $wp_filter[$old]->callbacks as $priority => $callbacks ) {
+					foreach( $callbacks as $callback ) {
+						add_filter( $new, $callback['function'], $priority, $callback['accepted_args'] ); 
+					}
 				}
+			} else {
+				// We don't have an alternative filter. Let's just show an error message.
+				/* translators: 1: the old hook name */
+				trigger_error( esc_html( sprintf( esc_html__( 'The %1$s hook has been deprecated in Paid Memberships Pro and may not be available in future versions.', 'paid-memberships-pro' ), $old ) ) );
 			}
 		}
 	}
@@ -46,17 +66,800 @@ function pmpro_getClassForField( $field ) {
  */
 function pmpro_admin_init_redirect_old_menu_items() {	
 	if ( is_admin()
-		&& ! empty( $_REQUEST['page'] ) && $_REQUEST['page'] == 'pmpro_license_settings'
-		&& basename( $_SERVER['SCRIPT_NAME'] ) == 'options-general.php' ) {
+		&& ! empty( $_REQUEST['page'] ) && $_REQUEST['page'] == 'pmpro_license_settings' // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only; only redirects an old menu URL to its new location.
+		&& isset( $_SERVER['SCRIPT_NAME'] ) && basename( sanitize_text_field( wp_unslash( $_SERVER['SCRIPT_NAME'] ) ) ) == 'options-general.php' ) {
 		wp_safe_redirect( admin_url( 'admin.php?page=pmpro-license' ) );
 		exit;
 	}
 }
 add_action( 'init', 'pmpro_admin_init_redirect_old_menu_items' );
 
-// Check if installed, deactivate it and show a notice now.
-function pmpro_check_for_deprecated_add_ons() {
+/**
+ * Old Register Helper functions and classes.
+ */
+function pmpro_register_helper_deprecated() {
+	// Activated plugins run after plugins_loaded. Bail to be safe.
+	if ( pmpro_activating_plugin( 'pmpro-register-helper/pmpro-register-helper.php' ) ) {
+		return;
+	}
+	
+	// PMProRH_Field class
+	if ( ! class_exists( 'PMProRH_Field' ) ) {
+		class PMProRH_Field extends PMPro_Field {
+			// Just do what PMPro_Field does.
+		}
+	}
+	
+	// pmprorh_add_registration_field function
+	if ( ! function_exists( 'pmprorh_add_registration_field' ) ) {		
+		function pmprorh_add_registration_field( $where, $field ) {
+			return pmpro_add_user_field( $where, $field );
+		}
+	}
+	
+	// pmprorh_add_checkout_box function
+	if ( ! function_exists( 'pmprorh_add_checkout_box' ) ) {
+		function pmprorh_add_checkout_box( $name, $label = NULL, $description = '', $order = NULL ) {
+			return pmpro_add_field_group( $name, $label, $description, $order );
+		}
+	}
+	
+	// pmprorh_add_user_taxonomy
+	if ( ! function_exists( 'pmprorh_add_user_taxonomy' ) ) {
+		function pmprorh_add_user_taxonomy( $name, $name_plural ) {
+			return pmpro_add_user_taxonomy( $name, $name_plural );
+		}
+	}
+	
+	// pmprorh_getCheckoutBoxByName function
+	if ( ! function_exists( 'pmprorh_getCheckoutBoxByName' ) ) {
+		function pmprorh_getCheckoutBoxByName( $name ) {
+			return pmpro_get_field_group_by_name( $name );
+		}
+	}
+	
+	// pmprorh_getCSVFields function
+	if ( ! function_exists( 'pmprorh_getCSVFields' ) ) {
+		function pmprorh_getCSVFields() {
+			return pmpro_get_user_fields_for_csv();
+		}
+	}
+	
+	// pmprorh_getProfileFields function
+	if ( ! function_exists( 'pmprorh_getProfileFields' ) ) {
+		function pmprorh_getProfileFields( $user_id, $withlocations = false  ) {
+			return pmpro_get_user_fields_for_profile( $user_id, $withlocations );
+		}
+	}
+	
+	// pmprorh_checkFieldForLevel function
+	if ( ! function_exists( 'pmprorh_checkFieldForLevel' ) ) {
+		function pmprorh_checkFieldForLevel( $field, $scope = 'default', $args = NULL ) {
+			return pmpro_check_field_for_level( $field, $scope, $args );
+		}
+	}
+	
+	// pmprorh_end function
+	if ( ! function_exists( 'pmprorh_end' ) ) {
+		function pmprorh_end( $array ) {
+			return pmpro_array_end( $array );
+		}
+	}
+	
+	// pmprorh_sanitize function
+	if ( ! function_exists( 'pmprorh_sanitize' ) ) {
+		function pmprorh_sanitize( $value, $field = null  ) {
+			return pmpro_sanitize( $value, $field );
+		}
+	}
+}
+add_action( 'plugins_loaded', 'pmpro_register_helper_deprecated', 20 );
+/**
+ * Old Multiple Memberships Per User functions and classes.
+ */
+function pmpro_multiple_memberships_per_user_deprecated() {
+	// MemberInvoice class.
+	if ( ! class_exists( 'MemberInvoice' ) ) {
+		class MemberInvoice extends MemberOrder {
+			// Show deprecation warning in constructor.
+			public function __construct() {
+				_deprecated_function( __CLASS__, '3.0', 'MemberOrder' );
+			}
 
+			function getLastMemberInvoice( $user_id = NULL, $status = 'success' ) {
+				_deprecated_function( __CLASS__ . '::' . __FUNCTION__, '3.0', 'MemberOrder::getLastMemberOrder' );
+				return $this->getLastMemberOrder( $user_id, $status );
+			}
+		}
+	}
+
+	// pmprommpu_load_plugin_text_domain function.
+	if ( ! function_exists( 'pmprommpu_load_plugin_text_domain' ) ) {
+		function pmprommpu_load_plugin_text_domain() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_activation function.
+	if ( ! function_exists( 'pmprommpu_activation' ) ) {
+		function pmprommpu_activation() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_deactivation function.
+	if ( ! function_exists( 'pmprommpu_deactivation' ) ) {
+		function pmprommpu_deactivation() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_init function.
+	if ( ! function_exists( 'pmprommpu_init' ) ) {
+		function pmprommpu_init() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_send_checkout_emails function.
+	if ( ! function_exists( 'pmprommpu_send_checkout_emails' ) ) {
+		function pmprommpu_send_checkout_emails() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return false;
+		}
+	}
+
+	// pmprommpu_setDBTables function.
+	if ( ! function_exists( 'pmprommpu_setDBTables' ) ) {
+		function pmprommpu_setDBTables() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_is_loaded function.
+	if ( ! function_exists( 'pmprommpu_is_loaded' ) ) {
+		function pmprommpu_is_loaded() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return true;
+		}
+	}
+
+	// pmprommpu_plugin_dir function.
+	if ( ! function_exists( 'pmprommpu_plugin_dir' ) ) {
+		function pmprommpu_plugin_dir() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return '';
+		}
+	}
+
+	// pmprommpu_get_groups function.
+	if ( ! function_exists( 'pmprommpu_get_groups' ) ) {
+		function pmprommpu_get_groups() {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_get_level_groups' );
+			return pmpro_get_level_groups();
+		}
+	}
+
+	// pmprommpu_create_group function.
+	if ( ! function_exists( 'pmprommpu_create_group' ) ) {
+		function pmprommpu_create_group( $name, $allowmulti ) {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_create_level_group' );
+			return pmpro_create_level_group( $name, $allowmulti );
+		}
+	}
+
+	// pmprommpu_set_level_for_group function.
+	if ( ! function_exists( 'pmprommpu_set_level_for_group' ) ) {
+		function pmprommpu_set_level_for_group( $level_id, $group_id ) {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_add_level_to_group' );
+			return pmpro_add_level_to_group( $level_id, $group_id );
+		}
+	}
+
+	// pmprommpu_get_levels_and_groups_in_order function.
+	if ( ! function_exists( 'pmprommpu_get_levels_and_groups_in_order' ) ) {
+		function pmprommpu_get_levels_and_groups_in_order( $includehidden = false ) {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_get_level_groups_in_order' );
+			global $wpdb;
+			$retarray = array();
+			$pmpro_levels = pmpro_getAllLevels($includehidden, true);
+			$pmpro_level_order = get_option('pmpro_level_order');
+			$pmpro_levels = apply_filters('pmpro_levels_array', $pmpro_levels );
+			$include = array();
+			foreach( $pmpro_levels as $level ) {
+				$include[] = $level->id;
+			}
+			$included = implode( ',', array_map( 'intval', $include ) );
+			$order = array();
+			if(! empty($pmpro_level_order)) { $order = explode(',', $pmpro_level_order); }
+			$grouplist = $wpdb->get_col("SELECT id FROM {$wpdb->pmpro_groups} ORDER BY displayorder, id ASC");
+			if($grouplist) {
+				foreach($grouplist as $curgroup) {
+					$curgroup = intval($curgroup);
+					// phpcs:disable WordPress.DB.PreparedSQL.NotPrepared -- $included is a comma-separated list of level IDs cast with intval().
+					$levelsingroup = $wpdb->get_col(
+						$wpdb->prepare( "
+							SELECT level 
+							FROM {$wpdb->pmpro_membership_levels_groups} AS mlg 
+							INNER JOIN {$wpdb->pmpro_membership_levels} AS ml ON ml.id = mlg.level AND ml.allow_signups LIKE %s
+							WHERE mlg.group = %d 
+							AND ml.id IN (" . $included ." )
+							ORDER BY level ASC",
+						($includehidden ? '%' : 1),
+						$curgroup
+						)
+					);
+					// phpcs:enable WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+					// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Deprecated functions query PMPro custom tables and options directly; there is no WordPress API or object cache layer for them.
+					if(count($order)>0) {
+						$mylevels = array();
+						foreach($order as $level_id) {
+							if(in_array($level_id, $levelsingroup)) { $mylevels[] = $level_id; }
+						}
+						$retarray[$curgroup] = $mylevels;
+					} else {
+						$retarray[$curgroup] = $levelsingroup;
+					}
+				}
+			}
+			return $retarray;
+		}
+	}
+
+	// pmprommpu_gateway_supports_multiple_level_checkout function.
+	if ( ! function_exists( 'pmprommpu_gateway_supports_multiple_level_checkout' ) ) {
+		function pmprommpu_gateway_supports_multiple_level_checkout( $gateway ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return false;
+		}
+	}
+
+	// pmprommpu_override_user_pages function.
+	if ( ! function_exists( 'pmprommpu_override_user_pages' ) ) {
+		function pmprommpu_override_user_pages() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_get_group_for_level function.
+	if ( ! function_exists( 'pmprommpu_get_group_for_level' ) ) {
+		function pmprommpu_get_group_for_level( $level_id ) {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_get_group_id_for_level' );
+			return pmpro_get_group_id_for_level( $level_id );
+		}
+	}
+
+	// pmprommpu_set_group_for_level function.
+	if ( ! function_exists( 'pmprommpu_set_group_for_level' ) ) {
+		function pmprommpu_set_group_for_level( $level_id, $group_id ) {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_add_level_to_group' );
+			return pmpro_add_level_to_group( $level_id, $group_id );
+		}
+	}
+
+	// pmprommpu_add_group function.
+	if ( ! function_exists( 'pmprommpu_add_group' ) ) {
+		function pmprommpu_add_group() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_edit_group function.
+	if ( ! function_exists( 'pmprommpu_edit_group' ) ) {
+		function pmprommpu_edit_group() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_del_group function.
+	if ( ! function_exists( 'pmprommpu_del_group' ) ) {
+		function pmprommpu_del_group() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_update_level_and_group_order function.
+	if ( ! function_exists( 'pmprommpu_update_level_and_group_order' ) ) {
+		function pmprommpu_update_level_and_group_order() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_get_levels_from_latest_checkout function.
+	if ( ! function_exists( 'pmprommpu_get_levels_from_latest_checkout' ) ) {
+		function pmprommpu_get_levels_from_latest_checkout() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			global $wpdb, $current_user;
+			if(empty($user_id))
+			{
+				$user_id = $current_user->ID;
+			}
+			if(empty($user_id))
+			{
+				return [];
+			}
+			//make sure user id is int for security
+			$user_id = intval($user_id);
+			$retval = array();
+			$all_levels = pmpro_getAllLevels(true, true);
+			$checkoutid = intval($checkout_id);
+			if($checkoutid<1) {
+				$checkoutid = (int) $wpdb->get_var("SELECT MAX(checkout_id) FROM $wpdb->pmpro_membership_orders WHERE user_id=$user_id"); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $user_id is cast with intval() above.
+				if(empty($checkoutid) || intval($checkoutid)<1) { return $retval; }
+			}
+			$querySql = "SELECT membership_id FROM $wpdb->pmpro_membership_orders WHERE checkout_id = " . esc_sql( $checkoutid ) . " AND ( gateway = 'free' OR ";
+			if(!empty($statuses_to_check) && is_array($statuses_to_check)) {
+				$querySql .= "status IN('" . implode("','", $statuses_to_check) . "') ";
+			} elseif(!empty($statuses_to_check)) {
+				$querySql .= "status = '" . esc_sql($statuses_to_check) . "' ";
+			} else {
+				$querySql .= "status = 'success'";
+			}
+			$querySql .= " )";
+			$levelids = $wpdb->get_col($querySql); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $checkoutid is cast to int; $statuses_to_check is never set in this deprecated function, so the status clause is always the static 'success' branch.
+			foreach($levelids as $thelevel) {
+				if(array_key_exists($thelevel, $all_levels)) {
+					$retval[] = $all_levels[$thelevel];
+				}
+			}
+			return $retval;
+		}
+	}
+
+	// pmprommpu_join_with_and function.
+	if ( ! function_exists( 'pmprommpu_join_with_and' ) ) {
+		function pmprommpu_join_with_and( $array ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			$outstring = "";
+			if(!is_array($inarray) || count($inarray)<1) { return $outstring; }
+			$lastone = array_pop($inarray);
+			if(count($inarray)>0) {
+				$outstring .= implode(', ', $inarray);
+				if(count($inarray)>1) { $outstring .= ', '; } else { $outstring .= " "; }
+				$outstring .= "and ";
+			}
+			$outstring .= "$lastone";
+			return $outstring;
+		}
+	}
+
+	// pmprommpu_hasMembershipGroup function.
+	if ( ! function_exists( 'pmprommpu_hasMembershipGroup' ) ) {
+		function pmprommpu_hasMembershipGroup( $groups = null, $user_id = null ) {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_has_membership_access' );
+			global $current_user, $wpdb;
+			//assume false
+			$return = false;
+			//default to current user
+			if(empty($user_id)) {
+				$user_id = $current_user->ID;
+			}
+			//get membership levels (or not) for given user
+			if(!empty($user_id) && is_numeric($user_id))
+				$membership_levels = pmpro_getMembershipLevelsForUser($user_id);
+			else
+				$membership_levels = NULL;
+			//make an array out of a single element so we can use the same code
+			if(!is_array($groups)) {
+				$groups = array($groups);
+			}
+			//no levels, so no groups
+			if(empty($membership_levels)) {
+				$return = false;
+			} else {
+				//we have levels, so test against groups given
+				foreach($groups as $group_id) {
+					foreach($membership_levels as $level) {
+						$levelgroup = pmprommpu_get_group_for_level($level->id);
+						if($levelgroup == $group_id) {
+							$return = true;	//found one!
+							break 2;
+						}
+					}
+				}
+			}
+			//filter just in case
+			$return = apply_filters("pmprommpu_has_membership_group", $return, $user_id, $groups);
+			return $return;
+		}
+	}
+
+	// pmprommpu_addMembershipLevel function.
+	if ( ! function_exists( 'pmprommpu_addMembershipLevel' ) ) {
+		function pmprommpu_addMembershipLevel( $level_id, $user_id = null ) {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_changeMembershipLevel' );
+			pmpro_changeMembershipLevel( $level_id, $user_id );
+		}
+	}
+
+	// pmprommpu_init_checkout_levels function.
+	if ( ! function_exists( 'pmprommpu_init_checkout_levels' ) ) {
+		function pmprommpu_init_checkout_levels() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_template_redirect_dupe_level_check function.
+	if ( ! function_exists( 'pmprommpu_template_redirect_dupe_level_check' ) ) {
+		function pmprommpu_template_redirect_dupe_level_check() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_addin_jquery_dialog function.
+	if ( ! function_exists( 'pmprommpu_addin_jquery_dialog' ) ) {
+		function pmprommpu_addin_jquery_dialog() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_frontend_scripts function.
+	if ( ! function_exists( 'pmprommpu_frontend_scripts' ) ) {
+		function pmprommpu_frontend_scripts() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_checkout_level_text function.
+	if ( ! function_exists( 'pmprommpu_checkout_level_text' ) ) {
+		function pmprommpu_checkout_level_text( $level_text ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $level_text;
+		}
+	}
+
+	// pmprommpu_registration_checks_single_level function.
+	if ( ! function_exists( 'pmprommpu_registration_checks_single_level' ) ) {
+		function pmprommpu_registration_checks_single_level( $continue ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $continue;
+		}
+	}
+
+	// pmprommpu_pmpro_deactivate_old_levels function.
+	if ( ! function_exists( 'pmprommpu_pmpro_deactivate_old_levels' ) ) {
+		function pmprommpu_pmpro_deactivate_old_levels( $deactivate ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $deactivate;
+		}
+	}
+
+	// pmprommpu_pmpro_cancel_previous_subscriptions function.
+	if ( ! function_exists( 'pmprommpu_pmpro_cancel_previous_subscriptions' ) ) {
+		function pmprommpu_pmpro_cancel_previous_subscriptions( $cancel ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $cancel;
+		}
+	}
+
+	// pmprommpu_pmpro_after_checkout function.
+	if ( ! function_exists( 'pmprommpu_pmpro_after_checkout' ) ) {
+		function pmprommpu_pmpro_after_checkout( $user_id, $checkout_statuses ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_pmpro_membership_levels_table function.
+	if ( ! function_exists( 'pmprommpu_pmpro_membership_levels_table' ) ) {
+		function pmprommpu_pmpro_membership_levels_table( $html ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $html;
+		}
+	}
+
+	// pmprommpu_add_group_to_level_options function.
+	if ( ! function_exists( 'pmprommpu_add_group_to_level_options' ) ) {
+		function pmprommpu_add_group_to_level_options() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_save_group_on_level_edit function.
+	if ( ! function_exists( 'pmprommpu_save_group_on_level_edit' ) ) {
+		function pmprommpu_save_group_on_level_edit( $level_id ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_on_del_level function.
+	if ( ! function_exists( 'pmprommpu_on_del_level' ) ) {
+		function pmprommpu_on_del_level( $level_id ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_stop_default_checkout_emails function.
+	if ( ! function_exists( 'pmprommpu_stop_default_checkout_emails' ) ) {
+		function pmprommpu_stop_default_checkout_emails( $send ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $send;
+		}
+	}
+
+	// pmprommpu_show_multiple_levels_in_memlist function.
+	if ( ! function_exists( 'pmprommpu_show_multiple_levels_in_memlist' ) ) {
+		function pmprommpu_show_multiple_levels_in_memlist( $inuser ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $inuser;
+		}
+	}
+
+	// pmprommpu_memberslist_extra_cols function.
+	if ( ! function_exists( 'pmprommpu_memberslist_extra_cols' ) ) {
+		function pmprommpu_memberslist_extra_cols( $cols ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $cols;
+		}
+	}
+
+	// pmprommpu_fill_memberslist_col_member_number function.
+	if ( ! function_exists( 'pmprommpu_fill_memberslist_col_member_number' ) ) {
+		function pmprommpu_fill_memberslist_col_member_number() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_set_checkout_id function.
+	if ( ! function_exists( 'pmprommpu_set_checkout_id' ) ) {
+		function pmprommpu_set_checkout_id() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_pmpro_require_billing function.
+	if ( ! function_exists( 'pmprommpu_pmpro_require_billing' ) ) {
+		function pmprommpu_pmpro_require_billing( $require_billing ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $require_billing;
+		}
+	}
+
+	// pmprommpu_init_profile_hooks function.
+	if ( ! function_exists( 'pmprommpu_init_profile_hooks' ) ) {
+		function pmprommpu_init_profile_hooks() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_membership_level_profile_fields function.
+	if ( ! function_exists( 'pmprommpu_membership_level_profile_fields' ) ) {
+		function pmprommpu_membership_level_profile_fields( $user ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_membership_level_profile_fields_update function.
+	if ( ! function_exists( 'pmprommpu_membership_level_profile_fields_update' ) ) {
+		function pmprommpu_membership_level_profile_fields_update() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmprommpu_setup_and_upgrade function.
+	if ( ! function_exists( 'pmprommpu_setup_and_upgrade' ) ) {
+		function pmprommpu_setup_and_upgrade() {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_db_delta' );
+			pmpro_db_delta();
+		}
+	}
+
+	// pmprommpu_db_delta function.
+	if ( ! function_exists( 'pmprommpu_db_delta' ) ) {
+		function pmprommpu_db_delta() {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_db_delta' );
+			pmpro_db_delta();
+		}
+	}
+
+	// pmprommpu_setup_v1 function.
+	if ( ! function_exists( 'pmprommpu_setup_v1' ) ) {
+		function pmprommpu_setup_v1() {
+			_deprecated_function( __FUNCTION__, '3.0', 'pmpro_db_delta' );
+			pmpro_db_delta();
+		}
+	}
+}
+add_action( 'plugins_loaded', 'pmpro_multiple_memberships_per_user_deprecated', 20 );
+
+/**
+ * Old Stripe Billing Limits functions.
+ */
+function pmpro_stripe_billing_limits_deprecated() {
+	if ( ! function_exists( 'pmprosbl_pmpro_added_order' ) ) {
+		function pmprosbl_pmpro_added_order() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	if ( ! function_exists( 'pmprosbl_pmpro_stripe_subscription_deleted' ) ) {
+		function pmprosbl_pmpro_stripe_subscription_deleted() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	if ( ! function_exists( 'pmprosbl_is_billing_limit_reached' ) ) {
+		function pmprosbl_is_billing_limit_reached( $order ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+
+			// Get the subscription for this order.
+			$subscription = $order->get_subscription();
+			if ( empty( $subscription ) ) {
+				return false;
+			}
+
+			return $subscription->billing_limit_reached();
+		}
+	}
+
+	if ( ! function_exists( 'pmprosbl_plugin_row_meta' ) ) {
+		function pmprosbl_plugin_row_meta() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+}
+add_action( 'plugins_loaded', 'pmpro_stripe_billing_limits_deprecated', 20 );
+
+/**
+ * Old Cancel On Next Payment Date functions.
+ */
+function pmpro_cancel_on_next_payment_date_deprecated() {
+	// pmproconpd_load_text_domain function.
+	if ( ! function_exists( 'pmproconpd_load_text_domain' ) ) {
+		function pmproconpd_load_text_domain() {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmproconpd_pmpro_change_level function.
+	if ( ! function_exists( 'pmproconpd_pmpro_change_level' ) ) {
+		function pmproconpd_pmpro_change_level( $level_id, $user_id ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+		}
+	}
+
+	// pmproconpd_gettext_cancel_text function.
+	if ( ! function_exists( 'pmproconpd_gettext_cancel_text' ) ) {
+		function pmproconpd_gettext_cancel_text( $translated_text, $text, $domain ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $translated_text;
+		}
+	}
+
+	// pmproconpd_pmpro_email_body function.
+	if ( ! function_exists( 'pmproconpd_pmpro_email_body' ) ) {
+		function pmproconpd_pmpro_email_body( $body, $email ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $body;
+		}
+	}
+
+	// pmproconpd_pmpro_email_data function.
+	if ( ! function_exists( 'pmproconpd_pmpro_email_data' ) ) {
+		function pmproconpd_pmpro_email_data( $email_data, $email ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $email_data;
+		}
+	}
+
+	// pmproconpd_plugin_row_meta function.
+	if ( ! function_exists( 'pmproconpd_plugin_row_meta' ) ) {
+		function pmproconpd_plugin_row_meta( $links, $file ) {
+			_deprecated_function( __FUNCTION__, '3.0' );
+			return $links;
+		}
+	}
+}
+add_action( 'plugins_loaded', 'pmpro_cancel_on_next_payment_date_deprecated', 20 );
+
+/**
+ * Old Recurring Emails functions.
+ */
+function pmpro_recurring_emails_deprecated() {
+	// pmpror_recurring_emails function.
+	if ( ! function_exists( 'pmpror_recurring_emails' ) ) {
+		function pmpror_recurring_emails() {
+			_deprecated_function( __FUNCTION__, '3.2' );
+			PMPro_Recurring_Actions::instance()->recurring_payment_reminders();
+		}
+	}
+
+	// pmpror_template_callback function.
+	if ( ! function_exists( 'pmpror_template_callback' ) ) {
+		function pmpror_template_callback( $buffer ) {
+			_deprecated_function( __FUNCTION__, '3.2' );
+			return $buffer;
+		}
+	}
+
+	// pmpror_load_plugin_text_domain function.
+	if ( ! function_exists( 'pmpror_load_plugin_text_domain' ) ) {
+		function pmpror_load_plugin_text_domain() {
+			_deprecated_function( __FUNCTION__, '3.2' );
+		}
+	}
+
+	// pmpror_init_test function.
+	if ( ! function_exists( 'pmpror_init_test' ) ) {
+		function pmpror_init_test() {
+			_deprecated_function( __FUNCTION__, '3.2' );
+		}
+	}
+
+	// pmpror_recurring_emails_legacy function.
+	if ( ! function_exists( 'pmpror_recurring_emails_legacy' ) ) {
+		function pmpror_recurring_emails_legacy() {
+			_deprecated_function( __FUNCTION__, '3.2' );
+			PMPro_Recurring_Actions::instance()->recurring_payment_reminders();
+		}
+	}
+
+	// pmpror_log function.
+	if ( ! function_exists( 'pmpror_log' ) ) {
+		function pmpror_log( $message ) {
+			_deprecated_function( __FUNCTION__, '3.2' );
+		}
+	}
+
+	// pmpror_output_log function.
+	if ( ! function_exists( 'pmpror_output_log' ) ) {
+		function pmpror_output_log() {
+			_deprecated_function( __FUNCTION__, '3.2' );
+		}
+	}
+
+	// pmpro_recurring_emails_plugin_row_meta function.
+	if ( ! function_exists( 'pmpro_recurring_emails_plugin_row_meta' ) ) {
+		function pmpro_recurring_emails_plugin_row_meta( $links, $file ) {
+			_deprecated_function( __FUNCTION__, '3.2' );
+			return $links;
+		}
+	}
+}
+add_action( 'plugins_loaded', 'pmpro_recurring_emails_deprecated', 20 );
+
+/**
+ * Check for active Add Ons that are not yet MMPU compatible.
+ *
+ * @since 3.0
+ * @return array[string] Add On names that are not yet MMPU compatible.
+ */
+function pmpro_get_mmpu_incompatible_add_ons() {
+	// Add ons will use this filter to add their own names if they are not yet MMPU compatible.
+	return apply_filters( 'pmpro_mmpu_incompatible_add_ons', array() );
+}
+
+/**
+ * Get a list of deprecated PMPro Add Ons.
+ *
+ * @since 2.11
+ *
+ * @return array Add Ons that are deprecated.
+ */
+function pmpro_get_deprecated_add_ons() {
+	global $wpdb;
+
+	// Check if the RH restrict by username or email feature was being used.
+	static $pmpro_register_helper_restricting_by_email_or_username = null;
+	if ( ! isset( $pmpro_register_helper_restricting_by_email_or_username ) ) {
+		$sqlQuery = "SELECT option_value FROM $wpdb->options WHERE option_name LIKE 'pmpro_level_%_restrict_emails' OR option_name LIKE 'pmpro_level_%_restrict_usernames' AND option_value <> '' LIMIT 1";
+		$pmpro_register_helper_restricting_by_email_or_username = $wpdb->get_var( $sqlQuery ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Static query; only the $wpdb->options table name is interpolated.
+
+		// If the option was not found then the feature was not being used.
+		if( $pmpro_register_helper_restricting_by_email_or_username === null ) {
+			$pmpro_register_helper_restricting_by_email_or_username = false;
+		} else {
+			$pmpro_register_helper_restricting_by_email_or_username = true;
+		}
+	}
+
+	// If the RH restrict by username or email feature was being used, set the message.
+	if ( $pmpro_register_helper_restricting_by_email_or_username ) {
+		$pmpro_register_helper_message = sprintf( __( 'Restricting members by username or email was not merged into Paid Memberships Pro. If this feature was being used, a <a href="%s" target="_blank">code recipe</a> will be needed to continue using this functionality.', 'paid-memberships-pro' ), 'https://www.paidmembershipspro.com/restrict-membership-signup-by-email-or-username/' );
+	} else {
+		$pmpro_register_helper_message = '';
+	}
+	
+	// Set the array of deprecated Add Ons.
 	$deprecated = array(
 		'pmpro-member-history' => array(
 			'file' => 'pmpro-member-history.php',
@@ -69,21 +872,72 @@ function pmpro_check_for_deprecated_add_ons() {
 		'pmpro-email-templates-addon' => array(
 			'file' => 'pmpro-email-templates.php',
 			'label' => 'Email Templates'
-		)
+		),
+		'pmpro-better-logins-report' => array(
+			'file' => 'pmpro-better-logins-report.php',
+			'label' => 'Better Logins Report'
+		),
+		'pmpro-multiple-memberships-per-user' => array(
+			'file' => 'pmpro-multiple-memberships-per-user.php',
+			'label' => 'Multiple Memberships Per User'
+		),
+		'pmpro-cancel-on-next-payment-date' => array(
+			'file' => 'pmpro-cancel-on-next-payment-date.php',
+			'label' => 'Cancel on Next Payment Date'
+    ),
+		'pmpro-stripe-billing-limits' => array(
+			'file' => 'pmpro-stripe-billing-limits.php',
+			'label' => 'Stripe Billing Limits'
+		),
+		'pmpro-register-helper' => array(
+			'file' => 'pmpro-register-helper.php',
+			'label' => 'Register Helper',
+			'message' => $pmpro_register_helper_message
+		),
+		'pmpro-table-pages' => array(
+			'file' => 'pmpro-table-pages.php',
+			'label' => 'Table Layout Plugin Pages'
+		),
+		'pmpro-recurring-emails' => array(
+			'file' => 'pmpro-recurring-emails.php',
+			'label' => 'Recurring Emails'
+		),
+		'pmpro-subscription-check' => array(
+			'file' => 'pmpro-subscription-check.php',
+			'label' => 'Subscription Check'
+		),
+		'pmpro-subscription-delays' => array(
+			'file' => 'pmpro-subscription-delays.php',
+			'label' => 'Subscription Delays'
+		),
+		'pmpro-set-expiration-dates' => array(
+			'file' => 'pmpro-set-expiration-dates.php',
+			'label' => 'Set Expiration Dates'
+		),
 	);
 	
 	$deprecated = apply_filters( 'pmpro_deprecated_add_ons_list', $deprecated );
 	
 	// If the list is empty or not an array, just bail.
 	if ( empty( $deprecated ) || ! is_array( $deprecated ) ) {
-		return;
+		return array();
 	}
-	
-	$deprecated_active = array();
+
+	return $deprecated;
+}
+
+// Check if installed, deactivate it and show a notice now.
+function pmpro_check_for_deprecated_add_ons() {
+	$deprecated = pmpro_get_deprecated_add_ons();
+  	$deprecated_active = array();
+	$has_messages = false;
 	foreach( $deprecated as $key => $values ) {
 		$path = '/' . $key . '/' . $values['file'];
 		if ( file_exists( WP_PLUGIN_DIR . $path ) ) {
-			$deprecated_active[] = $values['label'];
+			$deprecated_active[] = $values;
+			if ( ! empty( $values['message'] ) ) {
+				$has_messages = true;
+			}
 
 			// Try to deactivate it if it's enabled.
 			if ( is_plugin_active( plugin_basename( $path ) ) ) {
@@ -93,9 +947,9 @@ function pmpro_check_for_deprecated_add_ons() {
 	}
 
 	// If any deprecated add ons are active, show warning.
-	if ( is_array( $deprecated_active ) && ! empty( $deprecated_active ) ) {
+	if ( ! empty( $deprecated_active ) && is_array( $deprecated_active ) ) {
 		// Only show on certain pages.
-		if ( ! isset( $_REQUEST['page'] ) || strpos( $_REQUEST['page'], 'pmpro' ) === false  ) {
+		if ( ! isset( $_REQUEST['page'] ) || strpos( sanitize_text_field( wp_unslash( $_REQUEST['page'] ) ), 'pmpro' ) === false  ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only; only decides whether to show an admin notice.
 			return;
 		}
 		?>
@@ -103,38 +957,76 @@ function pmpro_check_for_deprecated_add_ons() {
 		<p>
 			<?php
 				// translators: %s: The list of deprecated plugins that are active.
-				printf(
-					__( 'Some Add Ons are now merged into the Paid Memberships Pro core plugin. The features of the following plugins are now included in PMPro by default. You should <strong>delete these unnecessary plugins</strong> from your site: <em><strong>%s</strong></em>.', 'paid-memberships-pro' ),
-					implode( ', ', $deprecated_active )
+				echo wp_kses(
+					sprintf(
+						__( 'Some Add Ons are now merged into the Paid Memberships Pro core plugin. The features of the following plugins are now included in PMPro by default. You should <strong>delete these unnecessary plugins</strong> from your site: <em><strong>%s</strong></em>.', 'paid-memberships-pro' ),
+						implode( ', ', wp_list_pluck( $deprecated_active, 'label' ) )
+					),
+					array(
+						'strong' => array(),
+						'em' => array(),
+					)
 				);
 			?>
 		</p>
-    	</div>
+		<?php
+		// If there are any messages, show them.
+		if ( $has_messages ) {
+			?>
+			<ul>
+				<?php
+				foreach( $deprecated_active as $deprecated ) {
+					if ( empty( $deprecated['message'] ) ) {
+						continue;
+					}
+					?>
+					<li>
+						<strong><?php echo esc_html( $deprecated['label'] ); ?></strong>:
+						<?php
+						echo wp_kses(
+							$deprecated['message'],
+							array(
+								'a' => array(
+								'href' => array(),
+								'target' => array(),
+							) )
+						);
+						?>
+					</li>
+					<?php
+				}
+				?>
+			</ul>
+			<?php
+		}
+		?>
+		</div>
 		<?php
 	}
 }
 add_action( 'admin_notices', 'pmpro_check_for_deprecated_add_ons' );
 
 /**
- * The 2Checkout gateway was deprecated in v2.6.
- * This code will add it back if it was the selected gateway.
- * In future versions, we will remove the 2Checkout code entirely.
- * And you will have to use a stand alone add on for 2Checkout support
- * or choose a new gateway.
+ * Remove the "Activate" link on the plugins page for deprecated add ons.
+ *
+ * @since 2.11
+ *
+ * @param array  $actions An array of plugin action links.
+ * @param string $plugin_file Path to the plugin file relative to the plugins directory.
+ * @return array $actions An array of plugin action links.
  */
-function pmpro_check_for_deprecated_gateways() {
-	$undprepcated_gateways = (array)pmpro_getOption( 'undeprecated_gateways' );
-	$default_gateway = pmpro_getOption( 'gateway' );
-	
-	if ( $default_gateway === 'twocheckout' || in_array( 'twocheckout', $undprepcated_gateways ) ) {
-		require_once( PMPRO_DIR . '/classes/gateways/class.pmprogateway_twocheckout.php' );
-		
-		if ( ! in_array( 'twocheckout', $undprepcated_gateways ) ) {
-			$undeprecated_gateways[] = 'twocheckout';
-			pmpro_setOption( 'undeprecated_gateways', $undeprecated_gateways );
+ function pmpro_deprecated_add_ons_action_links( $actions, $plugin_file ) {
+	$deprecated = pmpro_get_deprecated_add_ons();
+
+	foreach( $deprecated as $key => $values ) {
+		if ( $plugin_file == $key . '/' . $values['file'] ) {
+			$actions['activate'] = esc_html__( 'Deprecated', 'paid-memberships-pro' );
 		}
 	}
+
+	return $actions;
 }
+add_filter( 'plugin_action_links', 'pmpro_deprecated_add_ons_action_links', 10, 2 );
 
 /**
  * Disable uninstall script for duplicates
@@ -184,3 +1076,263 @@ function pmpro_get_plugin_duplicates() {
 
 	return $multiple_installations;
 }
+
+/**
+ * Show admin notice if site was using a custom-loaded frontend.css file.
+ * We no longer enqueue the frontend.css override file by default.
+ *
+ * @since 3.1
+ */
+function pmpro_was_loading_frontend_css_notice() {
+	global $current_user;
+
+	// If we are not on a PMPro admin page, don't show the notice.
+	if ( ! isset( $_REQUEST['page'] ) || ( isset( $_REQUEST['page'] ) && 'pmpro-' !== substr( sanitize_text_field( wp_unslash( $_REQUEST['page'] ) ), 0, 6 ) ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only; only decides whether to show an admin notice.
+		return;
+	}
+
+	// Determine if this site was loading a custom frontend.css override file.
+	if ( ! file_exists( get_stylesheet_directory() . '/paid-memberships-pro/css/frontend.css' ) && ! file_exists( get_template_directory() . '/paid-memberships-pro/frontend.css' ) ) {
+		// No custom frontend.css override file was found. Don't show the notice.
+		return;
+	}
+
+	// Get notifications that have been archived.
+	$archived_notifications = get_user_meta( $current_user->ID, 'pmpro_archived_notifications', true );
+
+	// If the user hasn't dismissed the notice, show it.
+	if ( ! is_array( $archived_notifications ) || ! array_key_exists( 'was_loading_frontend_css_notice', $archived_notifications ) ) {
+		?>
+		<div id="was_loading_frontend_css_notice" class="notice notice-error pmpro_notification pmpro_notification-error">
+			<button type="button" class="pmpro-notice-button notice-dismiss" value="was_loading_frontend_css_notice"><span class="screen-reader-text"><?php esc_html_e( 'Dismiss this notice.', 'paid-memberships-pro' ); ?></span></button>
+			<div class="pmpro_notification-icon">
+				<span class="dashicons dashicons-warning"></span>
+			</div>
+			<div class="pmpro_notification-content">
+				<h3><?php esc_html_e( 'Custom Frontend Stylesheet Detected', 'paid-memberships-pro' ); ?></h3>
+				<p>
+					<?php
+					printf(
+						wp_kses_post(
+							__( 'Paid Memberships Pro detected that you were using a custom override for the frontend stylesheet. As of v3.1 and later, we no longer load your custom stylesheet. For more information, read our <a href="%s">v3.1 release notes post here</a>.', 'paid-memberships-pro' )
+						),
+						esc_url( 'https://www.paidmembershipspro.com/pmpro-update-3-1/' )
+					);
+					?>
+				</p>
+			</div>
+		</div>
+		<?php
+	}
+}
+add_action( 'admin_notices', 'pmpro_was_loading_frontend_css_notice' );
+
+/**
+ * Define deprecated wrappers for the public helper functions from the retired
+ * Subscription Delays and Set Expiration Dates Add Ons.
+ *
+ * Defined on plugins_loaded with function_exists() guards because core loads
+ * before those Add Ons: if a still-active copy of an Add On declares the same
+ * (unguarded) function later in the request, an eager definition here would
+ * fatal with "cannot redeclare".
+ *
+ * @since 3.9
+ */
+function pmpro_define_deprecated_date_pattern_functions() {
+	// Bail if either Add On may be activated later in this request: plugins.php
+	// activations, the update.php activate link, PMPro's own Add Ons page AJAX
+	// activation, or WP-CLI (where we can't tell which plugin is activating).
+	// Activated plugins load after plugins_loaded, and both Add Ons declare
+	// these functions unguarded, so defining them here would fatal with
+	// "cannot redeclare" when the Add On file loads.
+	$sd_file  = 'pmpro-subscription-delays/pmpro-subscription-delays.php';
+	$sed_file = 'pmpro-set-expiration-dates/pmpro-set-expiration-dates.php';
+	if ( pmpro_activating_plugin( $sd_file ) || pmpro_activating_plugin( $sed_file ) ) {
+		return;
+	}
+	if ( isset( $_REQUEST['action'] ) && in_array( $_REQUEST['action'], array( 'activate-plugin', 'pmpro_addon_activate' ), true ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only: only skips defining the wrappers while an Add On is being activated.
+		return;
+	}
+	if ( defined( 'WP_CLI' ) && WP_CLI && ( file_exists( WP_PLUGIN_DIR . '/' . $sd_file ) || file_exists( WP_PLUGIN_DIR . '/' . $sed_file ) ) ) {
+		return;
+	}
+
+	if ( ! function_exists( 'pmprosd_convert_date' ) ) {
+		/**
+		 * @deprecated 3.9 Use pmpro_resolve_date_pattern().
+		 */
+		function pmprosd_convert_date( $date ) {
+			_deprecated_function( __FUNCTION__, '3.9', 'pmpro_resolve_date_pattern()' );
+			$converted_date = pmpro_resolve_date_pattern( $date );
+			// The retired Add On always appended a time component.
+			return empty( $converted_date ) ? $converted_date : $converted_date . 'T0:0:0';
+		}
+	}
+
+	if ( ! function_exists( 'pmprosd_daysUntilDate' ) ) {
+		/**
+		 * @deprecated 3.9 Use pmpro_resolve_date_pattern().
+		 */
+		function pmprosd_daysUntilDate( $date ) {
+			_deprecated_function( __FUNCTION__, '3.9', 'pmpro_resolve_date_pattern()' );
+			$new_date = pmpro_resolve_date_pattern( $date );
+			if ( empty( $new_date ) ) {
+				return 0;
+			}
+			$now_timestamp = current_time( 'timestamp' );
+			$diff          = strtotime( $new_date, $now_timestamp ) - $now_timestamp;
+			return $diff < 0 ? 0 : ceil( $diff / 60 / 60 / 24 );
+		}
+	}
+
+	if ( ! function_exists( 'pmprosd_getDelay' ) ) {
+		/**
+		 * @deprecated 3.9 Use pmpro_get_subscription_delay().
+		 */
+		function pmprosd_getDelay( $level_id, $code_id = null ) {
+			_deprecated_function( __FUNCTION__, '3.9', 'pmpro_get_subscription_delay()' );
+			return pmpro_get_subscription_delay( $level_id, $code_id );
+		}
+	}
+
+	if ( ! function_exists( 'pmpro_getDCSDs' ) ) {
+		/**
+		 * @deprecated 3.9 Use get_option( 'pmpro_discount_code_subscription_delays' ) directly.
+		 */
+		function pmpro_getDCSDs( $code_id ) {
+			_deprecated_function( __FUNCTION__, '3.9' );
+			$all_delays = get_option( 'pmpro_discount_code_subscription_delays', array() );
+			if ( is_array( $all_delays ) && ! empty( $all_delays[ $code_id ] ) ) {
+				return $all_delays[ $code_id ];
+			}
+			return array();
+		}
+	}
+
+	if ( ! function_exists( 'pmpro_saveDCSDs' ) ) {
+		/**
+		 * @deprecated 3.9 Use update_option( 'pmpro_discount_code_subscription_delays' ) directly.
+		 */
+		function pmpro_saveDCSDs( $code_id, $delays ) {
+			_deprecated_function( __FUNCTION__, '3.9' );
+			$all_delays = get_option( 'pmpro_discount_code_subscription_delays', array() );
+			if ( ! is_array( $all_delays ) ) {
+				$all_delays = array();
+			}
+			$all_delays[ $code_id ] = $delays;
+			update_option( 'pmpro_discount_code_subscription_delays', $all_delays );
+		}
+	}
+
+	if ( ! function_exists( 'pmprosed_fixDate' ) ) {
+		/**
+		 * @deprecated 3.9 Use pmpro_resolve_expiration_date_pattern().
+		 */
+		function pmprosed_fixDate( $set_date, $current_date = null ) {
+			_deprecated_function( __FUNCTION__, '3.9', 'pmpro_resolve_expiration_date_pattern()' );
+			return pmpro_resolve_expiration_date_pattern( $set_date, $current_date );
+		}
+	}
+
+	if ( ! function_exists( 'pmpro_getSetExpirationDate' ) ) {
+		/**
+		 * @deprecated 3.9 Use pmpro_get_set_expiration_date().
+		 */
+		function pmpro_getSetExpirationDate( $level_id, $code_id = null ) {
+			_deprecated_function( __FUNCTION__, '3.9', 'pmpro_get_set_expiration_date()' );
+			return pmpro_get_set_expiration_date( $level_id, $code_id );
+		}
+	}
+
+	if ( ! function_exists( 'pmpro_saveSetExpirationDate' ) ) {
+		/**
+		 * @deprecated 3.9 Use update_option( 'pmprosed_{level_id}' ) directly.
+		 */
+		function pmpro_saveSetExpirationDate( $level_id, $set_expiration_date, $code_id = null ) {
+			_deprecated_function( __FUNCTION__, '3.9' );
+			if ( $code_id ) {
+				$key = 'pmprosed_' . intval( $level_id ) . '_' . intval( $code_id );
+			} else {
+				$key = 'pmprosed_' . intval( $level_id );
+			}
+			update_option( $key, $set_expiration_date, false );
+		}
+	}
+
+	if ( ! function_exists( 'pmprosed_is_past_date' ) ) {
+		/**
+		 * @deprecated 3.9 Use pmpro_get_set_expiration_date() and pmpro_resolve_expiration_date_pattern().
+		 */
+		function pmprosed_is_past_date( $level_id ) {
+			_deprecated_function( __FUNCTION__, '3.9', 'pmpro_resolve_expiration_date_pattern()' );
+			$set_expiration_date = pmpro_get_set_expiration_date( $level_id );
+			if ( empty( $set_expiration_date ) ) {
+				return false;
+			}
+			$resolved_date = pmpro_resolve_expiration_date_pattern( $set_expiration_date );
+			// Compare against the UTC date, as the retired Add On did, to keep its return values.
+			return ! empty( $resolved_date ) && $resolved_date < date( 'Y-m-d' );
+		}
+	}
+
+}
+add_action( 'plugins_loaded', 'pmpro_define_deprecated_date_pattern_functions' );
+
+/**
+ * Unhook a retired Add On's handlers when it is still active.
+ *
+ * On the first request after updating core - before the Add On is
+ * auto-deactivated from a wp-admin page - both core and the Add On are loaded.
+ * The legacy save handlers read form fields the new admin pages no longer
+ * submit (silently wiping the settings the admin just saved), the text filters
+ * double or replace core's wording, the checkout/webhook filters re-apply
+ * the old date engine on top of core's native handling, and the levels list
+ * column and past-date notice duplicate core's Expiration column.
+ *
+ * @since 3.9
+ */
+function pmpro_neutralize_retired_date_pattern_add_ons() {
+	if ( function_exists( 'pmprosd_pmpro_save_membership_level' ) ) {
+		// Subscription Delays Add On is loaded.
+		remove_action( 'pmpro_membership_level_after_other_settings', 'pmprosd_pmpro_membership_level_after_other_settings' );
+		remove_action( 'pmpro_save_membership_level', 'pmprosd_pmpro_save_membership_level' );
+		remove_action( 'pmpro_discount_code_after_level_settings', 'pmprosd_pmpro_discount_code_after_level_settings' );
+		remove_action( 'pmpro_save_discount_code_level', 'pmprosd_pmpro_save_discount_code_level' );
+		remove_action( 'pmpro_after_checkout', 'pmprosd_pmpro_after_checkout' );
+		remove_filter( 'pmpro_next_payment', 'pmprosd_pmpro_next_payment' );
+		remove_filter( 'pmpro_discount_code_level', 'pmprosd_pmpro_discount_code_level' );
+		remove_filter( 'pmpro_level_cost_text', 'pmprosd_level_cost_text' );
+		remove_filter( 'pmpro_subscribe_order', 'pmprosd_pmpro_subscribe_order' );
+	}
+	if ( function_exists( 'pmprosed_pmpro_save_membership_level' ) ) {
+		// Set Expiration Dates Add On is loaded.
+		remove_action( 'pmpro_membership_level_after_expiration_settings', 'pmprosed_pmpro_membership_level_after_expiration_settings', 1 );
+		remove_action( 'pmpro_save_membership_level', 'pmprosed_pmpro_save_membership_level' );
+		remove_action( 'pmpro_discount_code_after_level_settings', 'pmprosed_pmpro_discount_code_after_level_settings' );
+		remove_action( 'pmpro_save_discount_code_level', 'pmprosed_pmpro_save_discount_code_level' );
+		remove_filter( 'pmpro_checkout_level', 'pmprosed_pmpro_checkout_level' );
+		remove_filter( 'pmpro_discount_code_level', 'pmprosed_pmpro_checkout_level' );
+		remove_filter( 'pmpro_ipnhandler_level', 'pmprosed_pmpro_ipnhandler_level' );
+		remove_filter( 'pmpro_payfast_itnhandler_level', 'pmprosed_pmpro_ipnhandler_level' );
+		remove_filter( 'pmpro_paystack_webhook_level', 'pmprosed_pmpro_ipnhandler_level' );
+		remove_filter( 'pmpro_checkout_end_date', 'pmprosed_force_set_expiration_enddate' );
+		remove_filter( 'pmpro_level_expiration_text', 'pmprosed_pmpro_level_expiration_text' );
+		remove_action( 'pmpro_membership_levels_table_extra_cols_header', 'pmprosed_membership_levels_table_extra_cols_header', 15 );
+		remove_action( 'pmpro_membership_levels_table_extra_cols_body', 'pmprosed_membership_levels_table_extra_cols_body', 15 );
+		remove_action( 'admin_notices', 'pmprosed_show_admin_notice_past_dates' );
+	}
+}
+add_action( 'plugins_loaded', 'pmpro_neutralize_retired_date_pattern_add_ons' );
+
+/**
+ * The Subscription Delays Add On registers its checkout filter on init, after
+ * the plugins_loaded pass above, so unhook it separately.
+ *
+ * @since 3.9
+ */
+function pmpro_neutralize_retired_subscription_delays_checkout_filter() {
+	if ( function_exists( 'pmprosd_pmpro_checkout_level' ) ) {
+		remove_filter( 'pmpro_checkout_level', 'pmprosd_pmpro_checkout_level' );
+	}
+}
+add_action( 'init', 'pmpro_neutralize_retired_subscription_delays_checkout_filter', 11 );

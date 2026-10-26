@@ -2,9 +2,13 @@
 /*
 	Shortcode to show membership account information
 */
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 function pmpro_shortcode_account($atts, $content=null, $code="")
 {
-	global $wpdb, $pmpro_msg, $pmpro_msgt, $pmpro_levels, $current_user, $levels;
+	global $wpdb, $current_user;
 
 	// $atts    ::= array of attributes
 	// $content ::= text within enclosing form of shortcode element
@@ -13,97 +17,413 @@ function pmpro_shortcode_account($atts, $content=null, $code="")
 
 	extract(shortcode_atts(array(
 		'section' => '',
-		'sections' => 'membership,profile,invoices,links'
+		'sections' => 'membership,profile,invoices,links',
+		'title' => null,
 	), $atts));
 
-	//did they use 'section' instead of 'sections'?
-	if(!empty($section))
+	// Did they use 'section' instead of 'sections'?
+	if ( ! empty( $section ) ) {
 		$sections = $section;
+	}
 
-	//Extract the user-defined sections for the shortcode
-	$sections = array_map('trim',explode(",",$sections));
+	// Extract the user-defined sections for the shortcode.
+	$sections = array_map( 'trim', explode( ',', $sections ) );
+
+	// Start the output buffer to capture the content of the shortcode.
 	ob_start();
 
-	//if a member is logged in, show them some info here (1. past invoices. 2. billing information with button to update.)
-	$order = new MemberOrder();
-	$order->getLastMemberOrder();
+	// If multiple sections are being shown, set title to null.
+	// Titles can only be changed from the default if only one section is being shown.
+	if ( count( $sections ) > 1 ) {
+		$title = null;
+	}
+
+	// We want to show the actual levels for admins.
+	add_filter( 'pmpro_disable_admin_membership_access', '__return_true', 15 );
+
+	// Get the current user's membership levels.
 	$mylevels = pmpro_getMembershipLevelsForUser();
-	$pmpro_levels = pmpro_getAllLevels(false, true); // just to be sure - include only the ones that allow signups
-	$invoices = $wpdb->get_results("SELECT *, UNIX_TIMESTAMP(CONVERT_TZ(timestamp, '+00:00', @@global.time_zone)) as timestamp FROM $wpdb->pmpro_membership_orders WHERE user_id = '$current_user->ID' AND status NOT IN('review', 'token', 'error') ORDER BY timestamp DESC LIMIT 6");
+
+	// Sort the levels by the levels order.
+	if ( ! empty( $mylevels ) ) {
+		$mylevels = pmpro_sort_levels_by_order( $mylevels );
+	}
+
+	// Remove the filter so we don't mess up other stuff.
+	remove_filter( 'pmpro_disable_admin_membership_access', '__return_true', 15 ); 
+
+	// Just to be sure, only inclue the levels that allow signups.
+	$pmpro_levels = pmpro_getAllLevels();
 	?>
-	<div id="pmpro_account">
-		<?php if(in_array('membership', $sections) || in_array('memberships', $sections)) { ?>
-			<div id="pmpro_account-membership" class="<?php echo pmpro_get_element_class( 'pmpro_box', 'pmpro_account-membership' ); ?>">
-
-				<h3><?php esc_html_e("My Memberships", 'paid-memberships-pro' );?></h3>
-				<table class="<?php echo pmpro_get_element_class( 'pmpro_table' ); ?>" width="100%" cellpadding="0" cellspacing="0" border="0">
-					<thead>
-						<tr>
-							<th><?php esc_html_e("Level", 'paid-memberships-pro' );?></th>
-							<th><?php esc_html_e("Billing", 'paid-memberships-pro' ); ?></th>
-							<th><?php esc_html_e("Expiration", 'paid-memberships-pro' ); ?></th>
-						</tr>
-					</thead>
-					<tbody>
-						<?php if ( empty( $mylevels ) ) { ?>
-						<tr>
-							<td colspan="3">
+	<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro' ) ); ?>">
+		<?php if ( in_array( 'profile', $sections ) ) {
+			?>
+			<section id="pmpro_account-profile" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section', 'pmpro_account-profile' ) ); ?>">
+				<?php
+					if ( '' !== $title ) { // Check if title is being forced to not show.
+						// If a custom title was not set, use the default. Otherwise, show the custom title.
+						?>
+						<h2 class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section_title pmpro_font-x-large' ) ); ?>"><?php echo esc_html( null === $title ? __( 'My Account', 'paid-memberships-pro' ) : $title ); ?></h2>
+						<?php
+					}
+				?>
+				<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card' ) ); ?>">
+					<?php
+						// Get the current user.
+						wp_get_current_user();
+					?>
+					<h3 class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_title pmpro_font-large pmpro_heading-with-avatar' ) ); ?>">
+						<?php echo get_avatar( $current_user->ID, 48 ); ?>
+						<?php
+							/* translators: the current user's display name */
+							printf( esc_html__( 'Welcome, %s', 'paid-memberships-pro' ), esc_html( $current_user->display_name ) );
+						?>
+					</h3>
+					<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_content' ) ); ?>">
+						<ul class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list pmpro_list-plain' ) ); ?>">
 							<?php
-							// Check to see if the user has a cancelled order
-							$order = new MemberOrder();
-							$order->getLastMemberOrder( $current_user->ID, array( 'cancelled', 'expired', 'admin_cancelled' ) );
+								do_action('pmpro_account_bullets_top');
 
-							if ( isset( $order->membership_id ) && ! empty( $order->membership_id ) && empty( $level->id ) ) {
-								$level = pmpro_getLevel( $order->membership_id );
-							}
+								// Build the profile list items.
+								$pmpro_account_profile_list_items = array(
+									'username' => '<li class="' . esc_attr( pmpro_get_element_class( 'pmpro_list_item pmpro_list_item-username' ) ) . '"><strong>' . esc_html__( 'Username', 'paid-memberships-pro' ) . ':</strong> ' . esc_html( $current_user->user_login ) . '</li>',
+									'email'    => '<li class="' . esc_attr( pmpro_get_element_class( 'pmpro_list_item pmpro_list_item-email' ) ) . '"><strong>' . esc_html__( 'Email', 'paid-memberships-pro' ) . ':</strong> ' . esc_html( $current_user->user_email ) . '</li>',
+								);
 
-							// If no level check for a default level.
-							if ( empty( $level ) || ! $level->allow_signups ) {
-								$default_level_id = apply_filters( 'pmpro_default_level', 0 );
-							}
+								/**
+								 * Filter the profile list items shown on the Membership Account page.
+								 *
+								 * @since 3.8.9
+								 *
+								 * @param array   $pmpro_account_profile_list_items Profile list item HTML, keyed by item ('username', 'email').
+								 * @param WP_User $current_user                     The current user.
+								 * @return array $pmpro_account_profile_list_items Profile list item HTML.
+								 */
+								$pmpro_account_profile_list_items = apply_filters( 'pmpro_account_profile_list_items', $pmpro_account_profile_list_items, $current_user );
 
-							// Show the correct checkout link.
-							if ( ! empty( $level ) && ! empty( $level->allow_signups ) ) {
-								$url = pmpro_url( 'checkout', '?level=' . $level->id );
-								printf( __( "Your membership is not active. <a href='%s'>Renew now.</a>", 'paid-memberships-pro' ), $url );
-							} elseif ( ! empty( $default_level_id ) ) {
-								$url = pmpro_url( 'checkout', '?level=' . $default_level_id );
-								printf( __( "You do not have an active membership. <a href='%s'>Register here.</a>", 'paid-memberships-pro' ), $url );
-							} else {
-								$url = pmpro_url( 'levels' );
-								printf( __( "You do not have an active membership. <a href='%s'>Choose a membership level.</a>", 'paid-memberships-pro' ), $url );
-							}
+								echo wp_kses_post( implode( '', (array) $pmpro_account_profile_list_items ) );
+
+								do_action('pmpro_account_bullets_bottom');
 							?>
-							</td>
-						</tr>
-							<?php } else { ?>
-							<?php
-								foreach($mylevels as $level) {
-							?>
-							<tr>
-								<td class="<?php echo pmpro_get_element_class( 'pmpro_account-membership-levelname' ); ?>">
-									<?php echo $level->name?>
-									<div class="<?php echo pmpro_get_element_class( 'pmpro_actionlinks' ); ?>">
-										<?php do_action("pmpro_member_action_links_before"); ?>
+						</ul>
+					</div> <!-- end pmpro_card_content -->
+					<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_actions' ) ); ?>">
+						<?php
+							// Get the edit profile and change password links if 'Member Profile Edit Page' is set.
+							if ( ! empty( get_option( 'pmpro_member_profile_edit_page_id' ) ) ) {
+								$edit_profile_url = pmpro_url( 'member_profile_edit' );
+								$change_password_url = add_query_arg( 'view', 'change-password', pmpro_url( 'member_profile_edit' ) );
+							} elseif ( ! pmpro_block_dashboard() ) {
+								$edit_profile_url = admin_url( 'profile.php' );
+								$change_password_url = admin_url( 'profile.php' );
+							}
 
+							// Build the links to return.
+							$pmpro_profile_action_links = array();
+							if ( ! empty( $edit_profile_url) ) {
+								$pmpro_profile_action_links['edit-profile'] = sprintf( '<a id="pmpro_actionlink-profile" href="%s">%s</a>', esc_url( $edit_profile_url ), esc_html__( 'Edit Profile', 'paid-memberships-pro' ) );
+							}
+
+							if ( ! empty( $change_password_url ) ) {
+								$pmpro_profile_action_links['change-password'] = sprintf( '<a id="pmpro_actionlink-change-password" href="%s">%s</a>', esc_url( $change_password_url ), esc_html__( 'Change Password', 'paid-memberships-pro' ) );
+							}
+
+							$pmpro_profile_action_links['logout'] = sprintf( '<a id="pmpro_actionlink-logout" href="%s">%s</a>', esc_url( wp_logout_url() ), esc_html__( 'Log Out', 'paid-memberships-pro' ) );
+
+							// Wrap each action link item in a <span>
+							$pmpro_profile_action_links = array_map( function( $link ) {
+								return '<span class="' . esc_attr( pmpro_get_element_class( 'pmpro_card_action' ) ) . '">' . $link . '</span>';
+							}, $pmpro_profile_action_links );
+
+							
+							/**
+							 * Filter the profile action links.
+							 *
+							 * @param array $pmpro_profile_action_links Profile action links.
+							 * @return array $pmpro_profile_action_links Profile action links.
+							 */
+							$pmpro_profile_action_links = apply_filters( 'pmpro_account_profile_action_links', $pmpro_profile_action_links );
+
+							$allowed_html = array(
+								'a' => array (
+									'class' => array(),
+									'href' => array(),
+									'id' => array(),
+									'target' => array(),
+									'title' => array(),
+								),
+								'span' => array(
+									'class' => array(),
+								),
+							);
+							echo wp_kses( implode( '<span class="' . esc_attr( pmpro_get_element_class( 'pmpro_card_action_separator' ) ) . '">' . pmpro_actions_nav_separator() . '</span>', $pmpro_profile_action_links ), $allowed_html );
+						?>
+					</div> <!-- end pmpro_card_actions -->
+				</div> <!-- end pmpro_card -->
+			</section> <!-- end pmpro_account-profile -->
+		<?php } ?>
+
+		<?php if ( in_array( 'membership', $sections) || in_array( 'memberships', $sections ) ) {
+			// Get levels that the user does not have yet but has a pending order for. These memberships are waiting on payment.
+			$pending_order_levels = array();
+			$pending_orders = MemberOrder::get_orders(
+				array(
+					'user_id' => $current_user->ID,
+					'status'  => 'pending',
+				)
+			);
+			$mylevel_ids       = empty( $mylevels ) ? array() : wp_list_pluck( $mylevels, 'id' );
+			$checked_level_ids = array();
+			foreach ( $pending_orders as $pending_order ) {
+				// Skip if the user has this level or if we already evaluated it for an earlier pending order.
+				if ( in_array( $pending_order->membership_id, $mylevel_ids ) || in_array( $pending_order->membership_id, $checked_level_ids ) ) {
+					continue;
+				}
+				$checked_level_ids[] = $pending_order->membership_id;
+
+				$pending_order_level = pmpro_getLevel( $pending_order->membership_id );
+				if ( empty( $pending_order_level ) ) {
+					continue;
+				}
+
+				// Only show this level if its most recent pending or completed order is a pending delayed
+				// checkout that is still waiting on payment to be completed. A newer completed order (e.g.
+				// a 'success' order from paying again by a different method) means the pending order is
+				// stale, and orders dated in the future (e.g. renewal invoices created before their due
+				// date) are not yet live. Delayed checkouts save their checkout data in order meta; other
+				// pending orders, such as failed renewal payments for a membership that has since ended,
+				// will not activate a membership when paid.
+				$recent_orders = MemberOrder::get_orders(
+					array(
+						'user_id'             => $current_user->ID,
+						'membership_level_id' => $pending_order_level->id,
+						'status'              => array( 'pending', 'success', 'refunded' ),
+						'orderby'             => '`o`.`timestamp` DESC, `o`.`id` DESC',
+						'limit'               => 1,
+					)
+				);
+				$recent_order = empty( $recent_orders ) ? null : current( $recent_orders );
+				if ( empty( $recent_order )
+					|| 'pending' !== $recent_order->status
+					|| $recent_order->getTimestamp( true ) > time()
+					|| ! get_pmpro_membership_order_meta( $recent_order->id, 'checkout_request_vars', true )
+				) {
+					continue;
+				}
+
+				// In a single-selection group, a level the user started after this order supersedes it.
+				$group = pmpro_get_level_group( pmpro_get_group_id_for_level( $pending_order_level->id ) );
+				if ( ! empty( $group ) && empty( $group->allow_multiple_selections ) && ! empty( $mylevels ) ) {
+					$group_level_ids = wp_list_pluck( pmpro_get_levels_for_group( $group->id ), 'id' );
+					$superseded = false;
+					foreach ( $mylevels as $held_level ) {
+						// Skip any level outside this group.
+						if ( ! in_array( $held_level->id, $group_level_ids ) ) {
+							continue;
+						}
+						// Only supersede if the held level was started after the pending order was created.
+						// Note: startdate can be null on hosts without MySQL timezone tables. Fail open.
+						// Both sides are local-wall-clock epochs; the comparison assumes the site's timezone
+						// settings haven't changed between the two events (e.g. across a DST boundary).
+						if ( ! empty( $held_level->startdate ) && $held_level->startdate >= $recent_order->getTimestamp() ) {
+							$superseded = true;
+							break;
+						}
+					}
+					if ( $superseded ) {
+						continue;
+					}
+				}
+
+				// Clone so that code hooked to the pending level card can't modify the level object
+				// cached in the $pmpro_levels global.
+				$pending_order_levels[ $pending_order_level->id ] = array(
+					'level' => clone $pending_order_level,
+					'order' => $recent_order,
+				);
+			}
+			?>
+			<section id="pmpro_account-membership" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section', 'pmpro_account-membership' ) ); ?>">
+				<?php
+					if ( '' !== $title ) { // Check if title is being forced to not show.
+						// If a custom title was not set, use the default. Otherwise, show the custom title.
+						?>
+						<h2 class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section_title pmpro_font-x-large' ) ); ?>"><?php echo esc_html( null === $title ? __( 'My Memberships', 'paid-memberships-pro' ) : $title ); ?></h2>
+						<?php
+					}
+				?>
+				<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section_content' ) ); ?>">
+					<?php if ( empty( $mylevels ) && empty( $pending_order_levels ) ) {
+
+						?>
+						<div id="pmpro_account-membership-none" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card' ) ); ?>">
+							<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_content' ) ); ?>">
+								<p>
+									<?php
+									esc_html_e( 'You do not have an active membership.', 'paid-memberships-pro' );
+									$levels_url = pmpro_url( 'levels' );
+									if ( ! empty( $levels_url ) ) {
+										echo ' ';
+										?>
+										<a href="<?php echo esc_url( $levels_url ); ?>"><?php esc_html_e( 'Choose a membership level.', 'paid-memberships-pro' ); ?></a>
 										<?php
+									}
+									?>
+								</p>
+							</div> <!-- end pmpro_card_content -->
+						</div> <!-- end pmpro_card -->
+						<?php
+					}
+
+					if ( ! empty( $mylevels ) ) {
+						foreach ( $mylevels as $level ) {
+							?>
+							<div id="pmpro_account-membership-<?php echo esc_attr( $level->ID ); ?>" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card' ) ); ?>">
+
+								<h3 class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_title pmpro_font-large' ) ); ?>"><?php echo esc_html( $level->name ); ?></h3>
+
+								<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_content' ) ); ?>">
+
+									<ul class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list pmpro_list-plain pmpro_list-with-labels pmpro_cols-3' ) ); ?>">
+
+									<?php
+										// Show information about the first active subscription for this level.
+										$subscription = null;
+										$subscriptions =  PMPro_Subscription::get_subscriptions_for_user( $current_user->ID, $level->id );
+
+										// Check whether the latest payment for one of this level's active subscriptions is pending and past due.
+										$past_due_order = null;
+										foreach ( $subscriptions as $level_subscription ) {
+											$subscription_orders = $level_subscription->get_orders( array( 'limit' => 1 ) );
+											$latest_order = empty( $subscription_orders ) ? null : current( $subscription_orders );
+
+											// Subscription orders are matched by transaction ID, so make sure the order belongs to this user.
+											if ( empty( $latest_order ) || (int) $latest_order->user_id !== (int) $current_user->ID ) {
+												continue;
+											}
+
+											// Orders dated in the future (e.g. renewal invoices created before their due date) are not yet due.
+											if ( 'pending' === $latest_order->status && $latest_order->getTimestamp( true ) <= time() ) {
+												$past_due_order = $latest_order;
+												break;
+											}
+										}
+
+										if ( ! empty( $subscriptions ) ) {
+											$subscription = $subscriptions[0];
+											?>
+											<li class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item' ) ); ?>">
+												<span class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item_label' ) ); ?>"><?php esc_html_e( 'Subscription', 'paid-memberships-pro' ); ?></span>
+												<span class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item_value' ) ); ?>"><?php echo esc_html( $subscription->get_cost_text() ); ?></span>
+											</li>
+											<li class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item' ) ); ?>">
+												<span class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item_label' ) ); ?>"><?php esc_html_e( 'Next payment on', 'paid-memberships-pro' ); ?></span>
+												<span class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item_value' ) ); ?>"><?php echo esc_html( $subscription->get_next_payment_date( get_option( 'date_format' ) ) ); ?></span>
+											</li>
+											<?php
+										}
+
+										$expiration_text = pmpro_get_membership_expiration_text( $level, $current_user, '' );
+										if ( ! empty( $expiration_text ) ) {
+											?>
+											<li class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item' ) ); ?>">
+												<span class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item_label' ) ); ?>"><?php esc_html_e( 'Expires', 'paid-memberships-pro' ); ?></span>
+												<span class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list_item_value' ) ); ?>"><?php echo wp_kses_post( $expiration_text ); ?></span>
+											</li>
+											<?php
+										}
+										?>
+									</ul> <!-- end pmpro_list -->
+									<?php
+										// Show a message if the user's latest payment for this membership is past due.
+										if ( ! empty( $past_due_order ) ) { ?>
+											<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_message pmpro_alert' ) ); ?>"><?php esc_html_e( 'Your latest payment for this membership is past due. We are waiting for your payment to be completed.', 'paid-memberships-pro' ); ?></div>
+										<?php }
+
+										/**
+										 * Hook to add content after the default level card content.
+										 *
+										 * @since 3.4
+										 * @param object $level The current level object.
+										 */
+										do_action( 'pmpro_membership_account_after_level_card_content', $level );
+									?>
+								</div> <!-- end pmpro_card_content -->
+
+								<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_actions' ) ); ?>">
+
+									<?php
+										/**
+										 * Fires before the member action links.
+										 */
+										do_action( 'pmpro_member_action_links_before' );
+									?>
+
+									<?php
 										// Build the links to return.
 										$pmpro_member_action_links = array();
 
-										if( array_key_exists($level->id, $pmpro_levels) && pmpro_isLevelExpiringSoon( $level ) ) {
-											$pmpro_member_action_links['renew'] = sprintf( '<a id="pmpro_actionlink-renew" href="%s">%s</a>', esc_url( add_query_arg( 'level', $level->id, pmpro_url( 'checkout', '', 'https' ) ) ), esc_html__( 'Renew', 'paid-memberships-pro' ) );
+										$renew_url = pmpro_url( 'checkout', 'pmpro_level=' . $level->id, 'https' );
+										if ( array_key_exists($level->id, $pmpro_levels) && pmpro_isLevelExpiringSoon( $level ) && ! empty( $renew_url ) ) {
+											$pmpro_member_action_links['renew'] = '<a id="pmpro_actionlink-renew-' . $level->id . '" href="' . esc_url( $renew_url ) . '" aria-label="' . esc_attr( sprintf( esc_html__( 'Renew %1$s Membership', 'paid-memberships-pro' ), $level->name ) ) . '">' . esc_html__( 'Renew', 'paid-memberships-pro' ) . '</a>';
+
 										}
 
-										if((isset($order->status) && $order->status == "success") && (isset($order->gateway) && in_array($order->gateway, array("authorizenet", "paypal", "stripe", "braintree", "payflow", "cybersource"))) && pmpro_isLevelRecurring($level)) {
-											$pmpro_member_action_links['update-billing'] = sprintf( '<a id="pmpro_actionlink-update-billing" href="%s">%s</a>', pmpro_url( 'billing', '', 'https' ), esc_html__( 'Update Billing Info', 'paid-memberships-pro' ) );
+										// Check if we should show the update billing link.
+										if ( ! empty( $subscription ) ) {
+											// Check if this subscription is for the default gateaway (we can currently only update billing info for the default gateway).
+											if ( $subscription->get_gateway() == get_option( 'pmpro_gateway' ) ) {
+												// Check if the gateway supports updating billing info.
+												$gateway_obj = $subscription->get_gateway_object();
+												if ( ! empty( $gateway_obj ) && method_exists( $gateway_obj, 'supports' ) && $gateway_obj->supports( 'payment_method_updates' ) ) {
+													$update_billing_url = pmpro_url( 'billing', 'pmpro_subscription_id=' . $subscription->get_id(), 'https' );
+													if ( ! empty( $update_billing_url ) ) {
+														$pmpro_member_action_links['update-billing'] = sprintf( '<a id="pmpro_actionlink-update-billing-%s" href="%s">%s</a>', $level->id, $update_billing_url, esc_html__( 'Update Billing Info', 'paid-memberships-pro' ) );
+													}
+												}
+											}
 										}
 
-										//To do: Only show CHANGE link if this level is in a group that has upgrade/downgrade rules
-										if(count($pmpro_levels) > 1 && !defined("PMPRO_DEFAULT_LEVEL")) {
-											$pmpro_member_action_links['change'] = sprintf( '<a id="pmpro_actionlink-change" href="%s">%s</a>', pmpro_url( 'levels' ), esc_html__( 'Change', 'paid-memberships-pro' ) );
+										// Check if we should show the change membership level link.
+										$show_change_link = false;
+
+										// Get the group for this level.
+										$level_group_id = pmpro_get_group_id_for_level( $level->ID );
+										$level_group = pmpro_get_level_group( $level_group_id );
+
+										// Show the link if there is more than one level available.
+										if ( count( $pmpro_levels ) > 1 ) {
+											$show_change_link = true;
 										}
 
-										$pmpro_member_action_links['cancel'] = sprintf( '<a id="pmpro_actionlink-cancel" href="%s">%s</a>', esc_url( add_query_arg( 'levelstocancel', $level->id, pmpro_url( 'cancel' ) ) ), esc_html__( 'Cancel', 'paid-memberships-pro' ) );
+										// Do not show the link if the group does not allow multiple selections.
+										if ( ! empty( $level_group ) && ! empty( $level_group->allow_multiple_selections ) ) {
+											$show_change_link = false;
+										}
+
+										$levels_url = pmpro_url( 'levels' );
+										if ( ! empty( $show_change_link ) && ! empty( $levels_url ) ) {
+											$pmpro_member_action_links['change'] = '<a id="pmpro_actionlink-change-' . $level->id . '" href="' . esc_url( $levels_url ) . '" aria-label="' . esc_attr( sprintf( esc_html__( 'Change %1$s Membership', 'paid-memberships-pro' ), $level->name ) ) . '">' . esc_html__( 'Change', 'paid-memberships-pro' ) . '</a>';
+										}
+
+										$cancel_url = pmpro_url( 'cancel', 'levelstocancel=' . $level->id );
+										if ( ! empty( $cancel_url ) ) {
+											$pmpro_member_action_links['cancel'] = '<a id="pmpro_actionlink-cancel-' . $level->id . '" href="' . esc_url( $cancel_url ) . '" aria-label="' . esc_attr( sprintf( esc_html__( 'Cancel %1$s Membership', 'paid-memberships-pro' ), $level->name ) ) . '">' . esc_html__( 'Cancel', 'paid-memberships-pro' ) . '</a>';
+										}
+
+										// If the user's latest payment for this level is past due, add a link to view that order.
+										// If we are already showing an update billing link, the member can complete their payment there instead.
+										if ( ! empty( $past_due_order ) && ! isset( $pmpro_member_action_links['update-billing'] ) ) {
+											$view_order_url = pmpro_url( 'invoice', '?invoice=' . $past_due_order->code );
+											if ( ! empty( $view_order_url ) ) {
+												$pmpro_member_action_links['view-order'] = '<a id="pmpro_actionlink-view-order-' . esc_attr( $level->id ) . '" href="' . esc_url( $view_order_url ) . '" aria-label="' . esc_attr__( 'View Pending Order', 'paid-memberships-pro' ) . '">' . esc_html__( 'View Order', 'paid-memberships-pro' ) . '</a>';
+											}
+										}
+
+										// Wrap each action link item in a <span>
+										$pmpro_member_action_links = array_map( function( $link ) {
+											return '<span class="' . esc_attr( pmpro_get_element_class( 'pmpro_card_action' ) ) . '">' . $link . '</span>';
+										}, $pmpro_member_action_links );
 
 										/**
 										 * Filter the member action links.
@@ -121,173 +441,200 @@ function pmpro_shortcode_account($atts, $content=null, $code="")
 												'id' => array(),
 												'target' => array(),
 												'title' => array(),
+												'aria-label' => array(),
+											),
+											'span' => array(
+												'class' => array(),
 											),
 										);
-										echo wp_kses( implode( pmpro_actions_nav_separator(), $pmpro_member_action_links ), $allowed_html );
-										?>
-
-										<?php do_action("pmpro_member_action_links_after"); ?>
-									</div> <!-- end pmpro_actionlinks -->
-								</td>
-								<td class="<?php echo pmpro_get_element_class( 'pmpro_account-membership-levelfee' ); ?>">
-									<p><?php echo pmpro_getLevelCost($level, true, true);?></p>
-								</td>
-								<td class="<?php echo pmpro_get_element_class( 'pmpro_account-membership-expiration' ); ?>">
-									<?php
-										$expiration_text = '<p>';
-										if ( $level->enddate ) {
-											$expiration_text .= date_i18n( get_option( 'date_format' ), $level->enddate );
-											/**
-											 * Filter to include the expiration time with expiration date
-											 *
-											 * @param bool $pmpro_show_time_on_expiration_date Show the expiration time with expiration date (default: false).
-											 *
-											 * @return bool $pmpro_show_time_on_expiration_date Whether to show the expiration time with expiration date.
-											 *
-											 */
-											if ( apply_filters( 'pmpro_show_time_on_expiration_date', false ) ) {
-												$expiration_text .= ' ' . date_i18n( get_option( 'time_format', __( 'g:i a' ) ), $level->enddate );
-											}
-										} else {
-											$expiration_text .= esc_html_x( '&#8212;', 'A dash is shown when there is no expiration date.', 'paid-memberships-pro' );
-										}
-										$expiration_text .= '</p>';
-										echo apply_filters( 'pmpro_account_membership_expiration_text', $expiration_text, $level );
+										echo wp_kses( implode( '<span class="' . esc_attr( pmpro_get_element_class( 'pmpro_card_action_separator' ) ) . '">' . pmpro_actions_nav_separator() . '</span>', $pmpro_member_action_links ), $allowed_html );
 									?>
-								</td>
-							</tr>
-							<?php } ?>
+
+									<?php
+										/**
+										 * Fires after the member action links.
+										 */
+										do_action( 'pmpro_member_action_links_after' );
+									?>
+
+								</div> <!-- end pmpro_card_actions -->
+							</div> <!-- end pmpro_card -->
 						<?php } ?>
-					</tbody>
-				</table>
-				<?php //Todo: If there are multiple levels defined that aren't all in the same group defined as upgrades/downgrades ?>
-				<div class="<?php echo pmpro_get_element_class( 'pmpro_actionlinks' ); ?>">
-					<a id="pmpro_actionlink-levels" href="<?php echo esc_url( pmpro_url( "levels" ) ) ?>"><?php esc_html_e("View all Membership Options", 'paid-memberships-pro' );?></a>
-				</div>
+					<?php } ?>
 
-			</div> <!-- end pmpro_account-membership -->
-		<?php } ?>
-
-		<?php if(in_array('profile', $sections)) { ?>
-			<div id="pmpro_account-profile" class="<?php echo pmpro_get_element_class( 'pmpro_box', 'pmpro_account-profile' ); ?>">
-				<?php wp_get_current_user(); ?>
-				<h3><?php esc_html_e("My Account", 'paid-memberships-pro' );?></h3>
-				<?php if($current_user->user_firstname) { ?>
-					<p><?php echo $current_user->user_firstname?> <?php echo $current_user->user_lastname?></p>
-				<?php } ?>
-				<ul>
-					<?php do_action('pmpro_account_bullets_top');?>
-					<li><strong><?php esc_html_e("Username", 'paid-memberships-pro' );?>:</strong> <?php echo esc_html( $current_user->user_login ); ?></li>
-					<li><strong><?php esc_html_e("Email", 'paid-memberships-pro' );?>:</strong> <?php echo esc_html( $current_user->user_email ); ?></li>
-					<?php do_action('pmpro_account_bullets_bottom');?>
-				</ul>
-				<div class="<?php echo pmpro_get_element_class( 'pmpro_actionlinks' ); ?>">
 					<?php
-						// Get the edit profile and change password links if 'Member Profile Edit Page' is set.
-						if ( ! empty( pmpro_getOption( 'member_profile_edit_page_id' ) ) ) {
-							$edit_profile_url = pmpro_url( 'member_profile_edit' );
-							$change_password_url = add_query_arg( 'view', 'change-password', pmpro_url( 'member_profile_edit' ) );
-						} elseif ( ! pmpro_block_dashboard() ) {
-							$edit_profile_url = admin_url( 'profile.php' );
-							$change_password_url = admin_url( 'profile.php' );
-						}
+					// Show a card for each level that the user has a pending order for but does not have yet.
+					foreach ( $pending_order_levels as $pending_order_level_info ) {
+						$pending_order_level = $pending_order_level_info['level'];
+						$pending_order = $pending_order_level_info['order'];
 
-						// Build the links to return.
-						$pmpro_profile_action_links = array();
-						if ( ! empty( $edit_profile_url) ) {
-							$pmpro_profile_action_links['edit-profile'] = sprintf( '<a id="pmpro_actionlink-profile" href="%s">%s</a>', esc_url( $edit_profile_url ), esc_html__( 'Edit Profile', 'paid-memberships-pro' ) );
-						}
+						// Build the order link before firing the card action so that hooked code can't change it.
+						$pending_order_url = pmpro_url( 'invoice', '?invoice=' . $pending_order->code );
+						?>
+						<div id="pmpro_account-membership-pending-<?php echo esc_attr( $pending_order_level->id ); ?>" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card pmpro_card-pending' ) ); ?>">
 
-						if ( ! empty( $change_password_url ) ) {
-							$pmpro_profile_action_links['change-password'] = sprintf( '<a id="pmpro_actionlink-change-password" href="%s">%s</a>', esc_url( $change_password_url ), esc_html__( 'Change Password', 'paid-memberships-pro' ) );
-						}
+							<h3 class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_title pmpro_font-large' ) ); ?>"><?php echo esc_html( $pending_order_level->name ); ?></h3>
 
-						$pmpro_profile_action_links['logout'] = sprintf( '<a id="pmpro_actionlink-logout" href="%s">%s</a>', esc_url( wp_logout_url() ), esc_html__( 'Log Out', 'paid-memberships-pro' ) );
+							<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_content' ) ); ?>">
+								<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_message pmpro_alert' ) ); ?>"><?php esc_html_e( 'We are waiting for your payment to be completed. Your membership will be activated once the payment has been confirmed.', 'paid-memberships-pro' ); ?></div>
+								<?php
+									/**
+									 * Fires in the card content for a level that the user has a pending order for but does not have yet.
+									 *
+									 * Unlike pmpro_membership_account_after_level_card_content, the user does not have this
+									 * level and the level object comes from pmpro_getLevel(), so it does not have membership
+									 * properties like startdate and enddate.
+									 *
+									 * @since 3.9
+									 *
+									 * @param object      $pending_order_level The membership level that is waiting on payment.
+									 * @param MemberOrder $pending_order       The pending order that the membership is waiting on.
+									 */
+									do_action( 'pmpro_membership_account_after_pending_level_card_content', $pending_order_level, $pending_order );
+								?>
+							</div> <!-- end pmpro_card_content -->
 
-						$pmpro_profile_action_links = apply_filters( 'pmpro_account_profile_action_links', $pmpro_profile_action_links );
-
-						$allowed_html = array(
-							'a' => array (
-								'class' => array(),
-								'href' => array(),
-								'id' => array(),
-								'target' => array(),
-								'title' => array(),
-							),
-						);
-						echo wp_kses( implode( pmpro_actions_nav_separator(), $pmpro_profile_action_links ), $allowed_html );
-					?>
-				</div>
-			</div> <!-- end pmpro_account-profile -->
+							<?php if ( ! empty( $pending_order_url ) ) { ?>
+								<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_actions' ) ); ?>">
+									<span class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_action' ) ); ?>"><a id="pmpro_actionlink-view-order-<?php echo esc_attr( $pending_order_level->id ); ?>" href="<?php echo esc_url( $pending_order_url ); ?>" aria-label="<?php esc_attr_e( 'View Pending Order', 'paid-memberships-pro' ); ?>"><?php esc_html_e( 'View Order', 'paid-memberships-pro' ); ?></a></span>
+								</div> <!-- end pmpro_card_actions -->
+							<?php } ?>
+						</div> <!-- end pmpro_card -->
+					<?php } ?>
+				</div> <!-- end pmpro_section_content -->
+			</section> <!-- end pmpro_account-membership -->
 		<?php } ?>
 
-		<?php if(in_array('invoices', $sections) && !empty($invoices)) { ?>
-		<div id="pmpro_account-invoices" class="<?php echo pmpro_get_element_class( 'pmpro_box', 'pmpro_account-invoices' ); ?>">
-			<h3><?php esc_html_e("Past Invoices", 'paid-memberships-pro' );?></h3>
-			<table class="<?php echo pmpro_get_element_class( 'pmpro_table' ); ?>" width="100%" cellpadding="0" cellspacing="0" border="0">
-				<thead>
-					<tr>
-						<th><?php esc_html_e("Date", 'paid-memberships-pro' ); ?></th>
-						<th><?php esc_html_e("Level", 'paid-memberships-pro' ); ?></th>
-						<th><?php esc_html_e("Amount", 'paid-memberships-pro' ); ?></th>
-						<th><?php esc_html_e("Status", 'paid-memberships-pro'); ?></th>
-					</tr>
-				</thead>
-				<tbody>
-				<?php
-					$count = 0;
-					foreach($invoices as $invoice)
-					{
-						if($count++ > 4)
-							break;
+		<?php if ( in_array( 'invoices', $sections ) ) {
+			// Get the last 6 orders for the current user.
+			$orders = MemberOrder::get_orders(
+				array(
+					'limit' => 6,
+					'status' => array( 'pending', 'refunded', 'success' ),
+					'user_id' => $current_user->ID,
+				)
+			);
 
-						//get an member order object
-						$invoice_id = $invoice->id;
-						$invoice = new MemberOrder;
-						$invoice->getMemberOrderByID($invoice_id);
-						$invoice->getMembershipLevel();
-
-						if ( in_array( $invoice->status, array( '', 'success', 'cancelled' ) ) ) {
-						    $display_status = __( 'Paid', 'paid-memberships-pro' );
-						} elseif ( $invoice->status == 'pending' ) {
-						    // Some Add Ons set status to pending.
-						    $display_status = __( 'Pending', 'paid-memberships-pro' );
-						} elseif ( $invoice->status == 'refunded' ) {
-						    $display_status = __( 'Refunded', 'paid-memberships-pro' );
+			// Show the orders section if there are orders.
+			if ( ! empty( $orders ) ) {
+				?>
+				<section id="pmpro_account-orders" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section', 'pmpro_account-orders' ) ); ?>">
+					<?php
+						if ( '' !== $title ) { // Check if title is being forced to not show.
+							// If a custom title was not set, use the default. Otherwise, show the custom title.
+							?>
+							<h2 class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section_title pmpro_font-x-large' ) ); ?>"><?php echo esc_html( null === $title ? __( 'Order History', 'paid-memberships-pro' ) : $title ); ?></h2>
+							<?php
 						}
+					?>
+					<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card' ) ); ?>">
+						<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_content' ) ); ?>">
+							<table class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table pmpro_table_orders', 'pmpro_table_orders' ) ); ?>">
+								<thead>
+									<tr>
+										<th class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table_order-date' ) ); ?>"><?php esc_html_e( 'Date', 'paid-memberships-pro' ); ?></th>
+										<th class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table_order-level' ) ); ?>"><?php esc_html_e( 'Level', 'paid-memberships-pro' ); ?></th>
+										<th class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table_order-total' ) ); ?>"><?php esc_html_e( 'Total', 'paid-memberships-pro' ); ?></th>
+										<th class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table_order-status' ) ); ?>"><?php esc_html_e( 'Status', 'paid-memberships-pro'); ?></th>
+									</tr>
+								</thead>
+								<tbody>
+								<?php
+									$count = 0;
+									foreach ( $orders as $order ) {
+										// Only show the first 5 orders.
+										if ( $count++ > 4 ) {
+											break;
+										}
+
+										// Get a member order object.
+										$order_id = $order->id;
+										$order = new MemberOrder;
+										$order->getMemberOrderByID($order_id);
+										$order->getMembershipLevel();
+
+										// Set the display status and tag style.
+										if ( in_array( $order->status, array( '', 'success', 'cancelled' ) ) ) {
+											$display_status = esc_html__( 'Paid', 'paid-memberships-pro' );
+											$tag_style = 'success';
+										} elseif ( $order->status == 'pending' ) {
+											// Some Add Ons set status to pending.
+											$display_status = esc_html__( 'Pending', 'paid-memberships-pro' );
+											$tag_style = 'alert';
+										} elseif ( $order->status == 'refunded' ) {
+											$display_status = esc_html__( 'Refunded', 'paid-memberships-pro' );
+											$tag_style = 'error';
+										}
+										$invoice_url = pmpro_url( "invoice", "?invoice=" . $order->code );
+										$date_content = empty( $invoice_url ) ? date_i18n( get_option( 'date_format' ), $order->getTimestamp() ) : '<a href="' . esc_url( $invoice_url ) . '">' . esc_html( date_i18n( get_option( 'date_format' ), $order->getTimestamp() ) ) . '</a>';
+										?>
+										<tr id="pmpro_table_order-<?php echo esc_attr( $order->code ); ?>">
+											<th class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table_order-date' ) ); ?>" data-title="<?php esc_attr_e( 'Date', 'paid-memberships-pro' ); ?>"><?php echo wp_kses_post( $date_content ); ?></th>
+											<td class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table_order-level' ) ); ?>" data-title="<?php esc_attr_e( 'Level', 'paid-memberships-pro' ); ?>"><?php if(!empty($order->membership_level)) echo esc_html( $order->membership_level->name ); else echo esc_html__("N/A", 'paid-memberships-pro' );?></td>
+											<td class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table_order-amount' ) ); ?>" data-title="<?php esc_attr_e( 'Amount', 'paid-memberships-pro' ); ?>"><?php
+												//phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+												echo pmpro_escape_price( $order->get_formatted_total() ); ?></td>
+											<td class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_table_order-status' ) ); ?>" data-title="<?php esc_attr_e( 'Status', 'paid-memberships-pro' ); ?>">
+												<span class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_tag pmpro_tag-' . $tag_style ) ); ?>"><?php echo esc_html( $display_status ); ?></span>
+											</td>
+										</tr>
+										<?php
+									}
+								?>
+								</tbody>
+							</table>
+						</div> <!-- end pmpro_card_content -->
+						<?php
+							// Show the "View All Orders" link if there are more than 5 orders.
+							if ( $count == 6 ) {
+								$invoice_url = pmpro_url( 'invoice' );
+								if ( ! empty( $invoice_url ) ) {
+									?>
+									<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_actions' ) ); ?>">
+										<a href="<?php echo esc_url( $invoice_url ); ?>"><?php esc_html_e( 'View All Orders &rarr;', 'paid-memberships-pro' );?></a>
+									</div>
+									<?php
+								} else {
+									// Invoice page is not set, but we should still let the user know that there are more orders.
+									?>
+									<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_actions' ) ); ?>">
+										<p><?php esc_html_e( 'Please contact the site administrator for full order history.', 'paid-memberships-pro' ); ?></p>
+									</div>
+									<?php
+								}
+							}
 						?>
-						<tr id="pmpro_account-invoice-<?php echo $invoice->code; ?>">
-							<td><a href="<?php echo esc_url( pmpro_url( "invoice", "?invoice=" . $invoice->code ) ) ?>"><?php echo date_i18n(get_option("date_format"), $invoice->getTimestamp())?></a></td>
-							<td><?php if(!empty($invoice->membership_level)) echo $invoice->membership_level->name; else echo __("N/A", 'paid-memberships-pro' );?></td>
-							<td><?php echo pmpro_escape_price( pmpro_formatPrice($invoice->total) ); ?></td>
-							<td><?php echo $display_status; ?></td>
-						</tr>
+					</div> <!-- end pmpro_card -->
+				</section> <!-- end pmpro_account-orders -->
+			<?php } ?>
+		<?php } ?>
+
+		<?php if ( in_array('links', $sections ) && ( has_filter( 'pmpro_member_links_top' ) || has_filter( 'pmpro_member_links_bottom' ) ) ) { ?>
+			<section id="pmpro_account-links" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section', 'pmpro_account-links' ) ); ?>">
+				<?php
+					if ( '' !== $title ) { // Check if title is being forced to not show.
+						// If a custom title was not set, use the default. Otherwise, show the custom title.
+						?>
+						<h2 class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_section_title pmpro_font-x-large' ) ); ?>"><?php echo esc_html( null === $title ? __( 'Member Links', 'paid-memberships-pro' ) : $title ); ?></h2>
 						<?php
 					}
 				?>
-				</tbody>
-			</table>
-			<?php if($count == 6) { ?>
-				<div class="<?php echo pmpro_get_element_class( 'pmpro_actionlinks' ); ?>"><a id="pmpro_actionlink-invoices" href="<?php echo esc_url( pmpro_url( "invoice" ) ); ?>"><?php esc_html_e("View All Invoices", 'paid-memberships-pro' );?></a></div>
-			<?php } ?>
-		</div> <!-- end pmpro_account-invoices -->
-		<?php } ?>
+				<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card' ) ); ?>">
+					<div class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_card_content' ) ); ?>">
+						<ul class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_list' ) ); ?>">
+							<?php
+								do_action("pmpro_member_links_top");
+							?>
 
-		<?php if(in_array('links', $sections) && (has_filter('pmpro_member_links_top') || has_filter('pmpro_member_links_bottom'))) { ?>
-		<div id="pmpro_account-links" class="<?php echo pmpro_get_element_class( 'pmpro_box', 'pmpro_account-links' ); ?>">
-			<h3><?php esc_html_e("Member Links", 'paid-memberships-pro' );?></h3>
-			<ul>
-				<?php
-					do_action("pmpro_member_links_top");
-				?>
-
-				<?php
-					do_action("pmpro_member_links_bottom");
-				?>
-			</ul>
-		</div> <!-- end pmpro_account-links -->
+							<?php
+								do_action("pmpro_member_links_bottom");
+							?>
+						</ul>
+					</div> <!-- end pmpro_card_content -->
+				</div> <!-- end pmpro_card -->
+			</section> <!-- end pmpro_account-links -->
 		<?php } ?>
-	</div> <!-- end pmpro_account -->
+	</div> <!-- end pmpro -->
 	<?php
 
 	$content = ob_get_contents();

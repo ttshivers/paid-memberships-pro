@@ -1,4 +1,8 @@
 <?php
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /*
 	Shortcode to hide/show content based on membership level
 */
@@ -55,11 +59,11 @@ function pmpro_shortcode_membership($atts, $content=null, $code="")
 	{		
 		//okay, this post requires membership. start by getting the user's startdate
 		if(!empty($levels))
-			$sqlQuery = "SELECT UNIX_TIMESTAMP(CONVERT_TZ(startdate, '+00:00', @@global.time_zone)) FROM $wpdb->pmpro_memberships_users WHERE status = 'active' AND membership_id IN(" . implode(",", $levels) . ") AND user_id = '" . $current_user->ID . "' ORDER BY id LIMIT 1";
+			$sqlQuery = "SELECT UNIX_TIMESTAMP(CONVERT_TZ(startdate, '+00:00', @@global.time_zone)) FROM $wpdb->pmpro_memberships_users WHERE status = 'active' AND membership_id IN(" . implode(",", array_map( 'intval', $levels ) ) . ") AND user_id = '" . esc_sql( $current_user->ID ) . "' ORDER BY id LIMIT 1";
 		else
-			$sqlQuery = "SELECT UNIX_TIMESTAMP(CONVERT_TZ(startdate, '+00:00', @@global.time_zone)) FROM $wpdb->pmpro_memberships_users WHERE status = 'active' AND user_id = '" . $current_user->ID . "' ORDER BY id LIMIT 1";
+			$sqlQuery = "SELECT UNIX_TIMESTAMP(CONVERT_TZ(startdate, '+00:00', @@global.time_zone)) FROM $wpdb->pmpro_memberships_users WHERE status = 'active' AND user_id = '" . esc_sql( $current_user->ID ) . "' ORDER BY id LIMIT 1";
 
-		$startdate = $wpdb->get_var($sqlQuery);
+		$startdate = $wpdb->get_var($sqlQuery); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Level IDs are cast with intval and the current user ID goes through esc_sql() inside quotes; table name comes from $wpdb. Queries a PMPro custom table, which has no WordPress API or object cache layer.
 
 		//adjust start date to 12AM
 		$startdate = strtotime(date_i18n("Y-m-d", $startdate));
@@ -80,8 +84,14 @@ function pmpro_shortcode_membership($atts, $content=null, $code="")
 		}
 	}
 
-	// Filter the $hasaccess so we can overwrite this for other add ons.
-	$hasaccess = apply_filters( 'pmpro_member_shortcode_access', $hasaccess, $content, $levels, $delay );
+	/**
+	 * Legacy filter to change the access to the content for the [membership] shortcode. Use the
+	 * pmpro_has_membership_level filter instead.
+	 *
+	 * @deprecated 3.4.3
+	 */
+	$hasaccess = apply_filters_deprecated( 'pmpro_member_shortcode_access',
+		array( $hasaccess, $content, $levels, $delay ), '3.4.3', 'pmpro_has_membership_level' );
 
 	//to show or not to show
 	if($hasaccess)

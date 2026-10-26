@@ -1,18 +1,13 @@
 <?php
-	global $isapage;
-	$isapage = true;
-
-	global $lostr;
-	$logstr = '';
-
 	//in case the file is loaded directly
-	if(!defined("ABSPATH"))
-	{
-		define('WP_USE_THEMES', false);
-		require_once(dirname(__FILE__) . '/../../../../wp-load.php');
+	if( ! defined( 'ABSPATH' ) ) {
+		exit;
 	}
+	
+	// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Authorize.net Silent Post requests cannot carry a WordPress nonce. They are authenticated only by the optional pmpro_authnet_silent_post_token shared secret checked below (opt-in by design); without it, requests are not authenticated beyond matching an existing subscription ID.
 
-	global $wpdb;
+	global $lostr, $wpdb;
+	$logstr = '';
 
 	// Sets the PMPRO_DOING_WEBHOOK constant and fires the pmpro_doing_webhook action.
 	pmpro_doing_webhook( 'authnet', true );
@@ -20,6 +15,51 @@
 	//some code taken from http://www.merchant-account-services.org/blog/handling-authorizenet-arb-subscription-failures/
 	// Flag if this is an ARB transaction. Set to false by default.
 	$arb = false;
+
+	// Bail if Authorize.net credentials are not configured. If this site isn't set up to use
+	// Authorize.net, we should not be accepting or processing Silent Post requests at all.
+	if ( empty( get_option( 'pmpro_loginname' ) ) || empty( get_option( 'pmpro_transactionkey' ) ) ) {
+		status_header( 403 );
+		exit;
+	}
+
+	// Validate the shared-secret token if one is configured.
+	// Authorize.net sends exactly the Silent Post URL you provide, so a token appended to that URL
+	// will be present on every legitimate request and absent on forgeries.
+	$_pmpro_authnet_expected_token = get_option( 'pmpro_authnet_silent_post_token' );
+	if ( is_scalar( $_pmpro_authnet_expected_token ) ) {
+		$_pmpro_authnet_expected_token = (string) $_pmpro_authnet_expected_token;
+	} else {
+		$_pmpro_authnet_expected_token = '';
+	}
+
+	if ( '' !== $_pmpro_authnet_expected_token ) {
+		$_pmpro_authnet_provided_token = isset( $_GET['pmpro_authnet_token'] ) ? $_GET['pmpro_authnet_token'] : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Unslashed below after the is_scalar() check; not sanitized because it is compared byte-for-byte against the stored token with hash_equals().
+		if ( ! is_scalar( $_pmpro_authnet_provided_token ) ) {
+			$_pmpro_authnet_provided_token = '';
+		} else {
+			$_pmpro_authnet_provided_token = wp_unslash( (string) $_pmpro_authnet_provided_token );
+		}
+		if ( ! hash_equals( $_pmpro_authnet_expected_token, $_pmpro_authnet_provided_token ) ) {
+			// Log failed token checks before exiting so bad or outdated Silent Post URLs are visible in debug logs.
+			if ( defined( 'PMPRO_AUTHNET_SILENT_POST_DEBUG' ) && PMPRO_AUTHNET_SILENT_POST_DEBUG === 'log' ) {
+				$failed_log = "\n----\n";
+				$failed_log .= 'Logged on ' . date( 'Y-m-d H:i:s', current_time( 'timestamp' ) );
+				$failed_log .= "\n----\n";
+				$failed_log .= 'Authorize.net Silent Post token validation failed.';
+				$failed_log .= "\n----\n";
+
+				$logfile = apply_filters( 'pmpro_authnet_silent_post_logfile', pmpro_get_restricted_file_path( 'logs', 'authnet-silent-post.txt' ) );
+				$loghandle = fopen( $logfile, 'a+' );
+				if ( false !== $loghandle ) {
+					fwrite( $loghandle, $failed_log );
+					fclose( $loghandle );
+				}
+			}
+			status_header( 403 );
+			exit;
+		}
+	}
 
 	// Store the posted values in an associative array
 	$fields = array();
@@ -49,7 +89,7 @@
 	if(defined('PMPRO_AUTHNET_SILENT_POST_DEBUG') && PMPRO_AUTHNET_SILENT_POST_DEBUG === "log")
 	{
 		//file
-		$logfile = apply_filters( 'pmpro_authnet_silent_post_logfile', dirname( __FILE__ ) . "/../logs/authnet-silent-post.txt" );
+		$logfile = apply_filters( 'pmpro_authnet_silent_post_logfile', pmpro_get_restricted_file_path( 'logs', 'authnet-silent-post.txt' ) );
 		$loghandle = fopen( $logfile, "a+" );
 		fwrite($loghandle, $logstr);
 		fclose($loghandle);
@@ -65,7 +105,8 @@
 	// If it is an ARB transaction, do something with it
 	if($arb == true)
 	{
-		// okay, add an invoice. first lookup the user_id from the subscription id passed
+		// okay, add an order. first lookup the user_id from the subscription id passed
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Queries the PMPro orders table, which has no WordPress API or object cache layer.
 		$old_order_id = $wpdb->get_var("SELECT id FROM $wpdb->pmpro_membership_orders WHERE subscription_transaction_id = '" . esc_sql($fields['x_subscription_id']) . "' AND gateway = 'authorizenet' ORDER BY timestamp DESC LIMIT 1");
 		$old_order = new MemberOrder($old_order_id);
 		$user_id = $old_order->user_id;
@@ -80,12 +121,12 @@
 				//get the user's membership level info
 				$user->membership_level = pmpro_getMembershipLevelForUser($user_id);
 
-				//alright. create a new order/invoice
+				//alright. create a new order
 				$morder = new MemberOrder();
 				$morder->user_id = $old_order->user_id;
 				$morder->membership_id = $old_order->membership_id;
-				$morder->InitialPayment = $fields['x_amount'];	//not the initial payment, but the class is expecting that
-				$morder->PaymentAmount = $fields['x_amount'];
+				$morder->subtotal = $fields['x_amount'];
+				$morder->total = $fields['x_amount'];
 				$morder->payment_transaction_id = $fields['x_trans_id'];
 				$morder->subscription_transaction_id = $fields['x_subscription_id'];
 
@@ -94,16 +135,6 @@
 
 				$morder->gateway = $old_order->gateway;
 				$morder->gateway_environment = $old_order->gateway_environment;
-
-				$morder->FirstName = $fields['x_first_name'];
-				$morder->LastName = $fields['x_last_name'];
-				$morder->Email = $fields['x_email'];
-				$morder->Address1 = $fields['x_address'];
-				$morder->City = $fields['x_city'];
-				$morder->State = $fields['x_state'];
-				$morder->CountryCode = $fields['x_country'];
-				$morder->Zip = $fields['x_zip'];
-				$morder->PhoneNumber = $fields['x_phone'];
 
 				$morder->billing = new stdClass();
 				$morder->billing->name = $fields['x_first_name'] . " " . $fields['x_last_name'];
@@ -114,20 +145,15 @@
 				$morder->billing->country = $fields['x_country'];
 				$morder->billing->phone = $fields['x_phone'];
 
-				//get CC info that is on file
-				$morder->cardtype = get_user_meta($user_id, "pmpro_CardType", true);
-				$morder->accountnumber = hideCardNumber(get_user_meta($user_id, "pmpro_AccountNumber", true), false);
-				$morder->expirationmonth = get_user_meta($user_id, "pmpro_ExpirationMonth", true);
-				$morder->expirationyear = get_user_meta($user_id, "pmpro_ExpirationYear", true);
-				$morder->ExpirationDate = $morder->expirationmonth . $morder->expirationyear;
-				$morder->ExpirationDate_YdashM = $morder->expirationyear . "-" . $morder->expirationmonth;
-
+				//Updates this order with the most recent orders payment method information and saves it. 
+				pmpro_update_order_with_recent_payment_method( $morder );
+				
 				//save
 				$morder->status = "success";
 				$morder->saveOrder();
 				$morder->getMemberOrderByID($morder->id);
 
-				//email the user their invoice
+				//email the user their order
 				$pmproemail = new PMProEmail();
 				$pmproemail->sendInvoiceEmail($user, $morder);
 
@@ -157,11 +183,8 @@
 			$morder->billing->country = $fields['x_country'];
 			$morder->billing->phone = $fields['x_phone'];
 
-			//get CC info that is on file
-			$morder->cardtype = get_user_meta($user_id, "pmpro_CardType", true);
-			$morder->accountnumber = hideCardNumber(get_user_meta($user_id, "pmpro_AccountNumber", true), false);
-			$morder->expirationmonth = get_user_meta($user_id, "pmpro_ExpirationMonth", true);
-			$morder->expirationyear = get_user_meta($user_id, "pmpro_ExpirationYear", true);
+			//Updates this order with the most recent orders payment method information and saves it. 
+			pmpro_update_order_with_recent_payment_method( $morder );
 
 			// Email the user and ask them to update their credit card information
 			$pmproemail = new PMProEmail();

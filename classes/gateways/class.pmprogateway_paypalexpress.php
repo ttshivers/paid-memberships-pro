@@ -1,4 +1,8 @@
 <?php
+	if ( ! defined( 'ABSPATH' ) ) {
+		exit;
+	}
+
 	//include pmprogateway
 	require_once(dirname(__FILE__) . "/class.pmprogateway.php");
 
@@ -33,44 +37,17 @@
 			//make sure PayPal Express is a gateway option
 			add_filter('pmpro_gateways', array('PMProGateway_paypalexpress', 'pmpro_gateways'));
 
-			//add fields to payment settings
-			add_filter('pmpro_payment_options', array('PMProGateway_paypalexpress', 'pmpro_payment_options'));
-
-			/*
-				Filter pmpro_next_payment to get actual value
-				via the PayPal API. This is disabled by default
-				for performance reasons, but you can enable it
-				by copying this line into a custom plugin or
-				your active theme's functions.php and uncommenting
-				it there.
-			*/
-			//add_filter('pmpro_next_payment', array('PMProGateway_paypalexpress', 'pmpro_next_payment'), 10, 3);
-
-			/*
-				This code is the same for PayPal Website Payments Pro, PayPal Express, and PayPal Standard
-				So we only load it if we haven't already.
-			*/
-			global $pmpro_payment_option_fields_for_paypal;
-			if(empty($pmpro_payment_option_fields_for_paypal))
-			{
-				add_filter('pmpro_payment_option_fields', array('PMProGateway_paypalexpress', 'pmpro_payment_option_fields'), 10, 2);
-				$pmpro_payment_option_fields_for_paypal = true;
-			}
-
 			//code to add at checkout
 			$gateway = pmpro_getGateway();
 			if($gateway == "paypalexpress")
 			{
-				add_action('pmpro_checkout_preheader', array('PMProGateway_paypalexpress', 'pmpro_checkout_preheader'));
 				add_filter('pmpro_include_billing_address_fields', '__return_false');
 				add_filter('pmpro_include_payment_information_fields', '__return_false');
 				add_filter('pmpro_required_billing_fields', array('PMProGateway_paypalexpress', 'pmpro_required_billing_fields'));
-				add_filter('pmpro_checkout_new_user_array', array('PMProGateway_paypalexpress', 'pmpro_checkout_new_user_array'));
-				add_filter('pmpro_checkout_confirmed', array('PMProGateway_paypalexpress', 'pmpro_checkout_confirmed'));
-				add_action('pmpro_checkout_before_processing', array('PMProGateway_paypalexpress', 'pmpro_checkout_before_processing'));
 				add_filter('pmpro_checkout_default_submit_button', array('PMProGateway_paypalexpress', 'pmpro_checkout_default_submit_button'));
-				add_action('http_api_curl', array('PMProGateway_paypalexpress', 'http_api_curl'), 10, 3);
+				add_action('http_api_curl', array('PMProGateway_paypalexpress', 'http_api_curl'), 10, 3);				
 			}
+            add_action('pmpro_checkout_preheader', array('PMProGateway_paypalexpress', 'pmpro_checkout_preheader'));
 			add_filter( 'pmpro_process_refund_paypalexpress', array('PMProGateway_paypalexpress', 'process_refund' ), 10, 2 );
 		}
 
@@ -98,22 +75,53 @@
 		}
 
 		/**
+		 * Get a description for this gateway.
+		 *
+		 * @since 3.5
+		 *
+		 * @return string
+		 */
+		public static function get_description_for_gateway_settings() {
+			return esc_html__( 'With PayPal, members can pay with their PayPal balance, credit/debit cards, linked bank accounts, or local payment methods. PayPal is accepted worldwide and offers multi-currency support for 200+ markets and 25+ currencies.', 'paid-memberships-pro' );
+		}
+
+		/**
+		 * Check whether or not a gateway supports a specific feature.
+		 * 
+		 * @since 3.0
+		 * 
+		 * @return string|boolean $supports Returns whether or not the gateway supports the requested feature.
+		 */
+		public static function supports( $feature ) {
+			$supports = array(
+				'subscription_sync' => true,
+				'payment_method_updates' => false,
+				'recurring_trials' => true,
+			);
+
+			if ( empty( $supports[$feature] ) ) {
+				return false;
+			}
+
+			return $supports[$feature];
+		}
+
+		/**
 		 * Get a list of payment options that the this gateway needs/supports.
 		 *
 		 * @since 1.8
+		 * @deprecated 3.5
 		 */
 		static function getGatewayOptions()
 		{
+			_deprecated_function( __METHOD__, '3.5' );
 			$options = array(
-				'sslseal',
-				'nuclear_HTTPS',
 				'gateway_environment',
 				'gateway_email',
 				'apiusername',
 				'apipassword',
 				'apisignature',
 				'currency',
-				'use_ssl',
 				'tax_state',
 				'tax_rate',
 				'paypalexpress_skip_confirmation',
@@ -126,9 +134,11 @@
 		 * Set payment options for payment settings page.
 		 *
 		 * @since 1.8
+		 * @deprecated 3.5
 		 */
 		static function pmpro_payment_options($options)
 		{
+			_deprecated_function( __METHOD__, '3.5' );
 			//get options
 			$paypal_options = PMProGateway_paypalexpress::getGatewayOptions();
 
@@ -142,11 +152,13 @@
 		 * Display fields for this gateway's options.
 		 *
 		 * @since 1.8
+		 * @deprecated 3.5
 		 */
 		static function pmpro_payment_option_fields($values, $gateway)
 		{
+			_deprecated_function( __METHOD__, '3.5' );
 		?>
-		<tr class="pmpro_settings_divider gateway gateway_paypal gateway_paypalexpress gateway_paypalstandard" <?php if($gateway != "paypal" && $gateway != "paypalexpress" && $gateway != "paypalstandard") { ?>style="display: none;"<?php } ?>>
+		<tr class="pmpro_settings_divider gateway gateway_paypalwpp gateway_paypalexpress gateway_paypalstandard" <?php if($gateway != "paypalwpp" && $gateway != "paypalexpress" && $gateway != "paypalstandard") { ?>style="display: none;"<?php } ?>>
 			<td colspan="2">
 				<hr />
 				<h2 class="title"><?php esc_html_e( 'PayPal Settings', 'paid-memberships-pro' ); ?></h2>
@@ -154,66 +166,68 @@
 		</tr>
 		<tr class="gateway gateway_paypalstandard" <?php if($gateway != "paypalstandard") { ?>style="display: none;"<?php } ?>>
 			<td colspan="2" style="padding: 0px;">
-				<p class="pmpro_message">
-				<?php
-					$allowed_message_html = array (
-						'a' => array (
-							'href' => array(),
-							'target' => array(),
-							'title' => array(),
-						),
-					);
-					echo sprintf( wp_kses( __( 'Note: We do not recommend using PayPal Standard. We suggest using PayPal Express, Website Payments Pro (Legacy), or PayPal Pro (Payflow Pro). <a target="_blank" href="%s" title="More information on why can be found here">More information on why can be found here</a>.', 'paid-memberships-pro' ), $allowed_message_html ), 'https://www.paidmembershipspro.com/read-using-paypal-standard-paid-memberships-pro/?utm_source=plugin&utm_medium=pmpro-paymentsettings&utm_campaign=blog&utm_content=read-using-paypal-standard-paid-memberships-pro' );
-				?>
-				</p>
+				<div class="notice error inline">
+					<p>
+					<?php
+						$allowed_message_html = array (
+							'a' => array (
+								'href' => array(),
+								'target' => array(),
+								'title' => array(),
+							),
+						);
+						echo sprintf( wp_kses( __( 'Note: the PayPal Standard gateway has been deprecated. Please switch to using <a href="%s" target="_blank">PayPal Express</a>.', 'paid-memberships-pro' ), $allowed_message_html ), 'https://www.paidmembershipspro.com/gateway/paypal-express/enable-express-checkout/?utm_source=plugin&utm_medium=pmpro-paymentsettings&utm_campaign=documentation&utm_content=enable-express-checkout' );
+					?>
+					</p>
+				</div>
 			</td>
 		</tr>
-		<tr class="gateway gateway_paypal gateway_paypalexpress gateway_paypalstandard" <?php if($gateway != "paypal" && $gateway != "paypalexpress" && $gateway != "paypalstandard") { ?>style="display: none;"<?php } ?>>
+		<tr class="gateway gateway_paypalwpp gateway_paypalexpress gateway_paypalstandard" <?php if($gateway != "paypalwpp" && $gateway != "paypalexpress" && $gateway != "paypalstandard") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="gateway_email"><?php esc_html_e('Gateway Account Email', 'paid-memberships-pro' );?>:</label>
+				<label for="gateway_email"><?php esc_html_e('Gateway Account Email', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="gateway_email" name="gateway_email" value="<?php echo esc_attr($values['gateway_email'])?>" class="regular-text code" />
 			</td>
 		</tr>
-		<tr class="gateway gateway_paypal gateway_paypalexpress" <?php if($gateway != "paypal" && $gateway != "paypalexpress") { ?>style="display: none;"<?php } ?>>
+		<tr class="gateway gateway_paypalwpp gateway_paypalexpress" <?php if($gateway != "paypalwpp" && $gateway != "paypalexpress") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="apiusername"><?php esc_html_e('API Username', 'paid-memberships-pro' );?>:</label>
+				<label for="apiusername"><?php esc_html_e('API Username', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="apiusername" name="apiusername" value="<?php echo esc_attr($values['apiusername'])?>" class="regular-text code" />
 			</td>
 		</tr>
-		<tr class="gateway gateway_paypal gateway_paypalexpress" <?php if($gateway != "paypal" && $gateway != "paypalexpress") { ?>style="display: none;"<?php } ?>>
+		<tr class="gateway gateway_paypalwpp gateway_paypalexpress" <?php if($gateway != "paypalwpp" && $gateway != "paypalexpress") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="apipassword"><?php esc_html_e('API Password', 'paid-memberships-pro' );?>:</label>
+				<label for="apipassword"><?php esc_html_e('API Password', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="apipassword" name="apipassword" value="<?php echo esc_attr($values['apipassword'])?>" autocomplete="off" class="regular-text code pmpro-admin-secure-key" />
 			</td>
 		</tr>
-		<tr class="gateway gateway_paypal gateway_paypalexpress" <?php if($gateway != "paypal" && $gateway != "paypalexpress") { ?>style="display: none;"<?php } ?>>
+		<tr class="gateway gateway_paypalwpp gateway_paypalexpress" <?php if($gateway != "paypalwpp" && $gateway != "paypalexpress") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="apisignature"><?php esc_html_e('API Signature', 'paid-memberships-pro' );?>:</label>
+				<label for="apisignature"><?php esc_html_e('API Signature', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<input type="text" id="apisignature" name="apisignature" value="<?php echo esc_attr($values['apisignature'])?>" class="regular-text code" />
 			</td>
 		</tr>
-		<tr class="gateway gateway_paypal gateway_paypalexpress" <?php if($gateway != "paypal" && $gateway != "paypalexpress") { ?>style="display: none;"<?php } ?>>
+		<tr class="gateway gateway_paypalwpp gateway_paypalexpress" <?php if($gateway != "paypalwpp" && $gateway != "paypalexpress") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label for="paypalexpress_skip_confirmation"><?php esc_html_e('Confirmation Step', 'paid-memberships-pro' );?>:</label>
+				<label for="paypalexpress_skip_confirmation"><?php esc_html_e('Confirmation Step', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<select id="paypalexpress_skip_confirmation" name="paypalexpress_skip_confirmation">
-					<option value="0" <?php selected(pmpro_getOption('paypalexpress_skip_confirmation'), 0);?>><?php esc_html_e( 'Require an extra confirmation after users return from PayPal.', 'paid-memberships-pro' ) ?></option>
-					<option value="1" <?php selected(pmpro_getOption('paypalexpress_skip_confirmation'), 1);?>><?php esc_html_e( 'Skip the extra confirmation after users return from PayPal.', 'paid-memberships-pro' ) ?></option>
+					<option value="0" <?php selected(get_option('pmpro_paypalexpress_skip_confirmation'), 0);?>><?php esc_html_e( 'Require an extra confirmation after users return from PayPal.', 'paid-memberships-pro' ) ?></option>
+					<option value="1" <?php selected(get_option('pmpro_paypalexpress_skip_confirmation'), 1);?>><?php esc_html_e( 'Skip the extra confirmation after users return from PayPal.', 'paid-memberships-pro' ) ?></option>
 				</select>
 			</td>
 		</tr>
-		<tr class="gateway gateway_paypal gateway_paypalexpress gateway_paypalstandard" <?php if($gateway != "paypal" && $gateway != "paypalexpress" && $gateway != "paypalstandard") { ?>style="display: none;"<?php } ?>>
+		<tr class="gateway gateway_paypalwpp gateway_paypalexpress gateway_paypalstandard" <?php if($gateway != "paypalwpp" && $gateway != "paypalexpress" && $gateway != "paypalstandard") { ?>style="display: none;"<?php } ?>>
 			<th scope="row" valign="top">
-				<label><?php esc_html_e('IPN Handler URL', 'paid-memberships-pro' );?>:</label>
+				<label><?php esc_html_e('IPN Handler URL', 'paid-memberships-pro' );?></label>
 			</th>
 			<td>
 				<p class="description"><?php esc_html_e('To fully integrate with PayPal, be sure to set your IPN Handler URL to ', 'paid-memberships-pro' );?></p>
@@ -221,6 +235,100 @@
 			</td>
 		</tr>
 		<?php
+		}
+
+		/**
+		 * Display fields for PayPal options.
+		 *
+		 * Field values default to get_option( 'pmpro_' . $name ) inside the helper, so only the
+		 * field definitions are needed here.
+		 *
+		 * @since 3.5
+		 */
+		public static function show_settings_fields() {
+			?>
+			<p>
+				<?php
+					printf(
+						/* translators: %s: URL to the PayPal Express gateway documentation. */
+						esc_html__( 'For detailed setup instructions, please visit our %s.', 'paid-memberships-pro' ),
+						'<a href="https://www.paidmembershipspro.com/gateway/paypal-express/?utm_source=plugin&utm_medium=pmpro-paymentsettings&utm_campaign=documentation&utm_content=paypal-express-documentation" target="_blank">' . esc_html__( 'PayPal Express documentation', 'paid-memberships-pro' ) . '</a>'
+					);
+				?>
+			</p>
+			<?php
+			pmpro_build_settings_section( array(
+				'id'     => 'pmpro_paypalexpress',
+				'title'  => __( 'Settings', 'paid-memberships-pro' ),
+				'fields' => array(
+					array(
+						'name'  => 'gateway_email',
+						'label' => __( 'Gateway Account Email', 'paid-memberships-pro' ),
+						'type'  => 'text',
+						'class' => 'regular-text code',
+					),
+					array(
+						'name'  => 'apiusername',
+						'label' => __( 'API Username', 'paid-memberships-pro' ),
+						'type'  => 'text',
+						'class' => 'regular-text code',
+					),
+					array(
+						'name'  => 'apipassword',
+						'label' => __( 'API Password', 'paid-memberships-pro' ),
+						'type'  => 'secure_key',
+					),
+					array(
+						'name'  => 'apisignature',
+						'label' => __( 'API Signature', 'paid-memberships-pro' ),
+						'type'  => 'text',
+						'class' => 'regular-text code',
+					),
+					array(
+						'name'    => 'paypalexpress_skip_confirmation',
+						'label'   => __( 'Confirmation Step', 'paid-memberships-pro' ),
+						'type'    => 'select',
+						'options' => array(
+							0 => __( 'Require an extra confirmation after users return from PayPal.', 'paid-memberships-pro' ),
+							1 => __( 'Skip the extra confirmation after users return from PayPal.', 'paid-memberships-pro' ),
+						),
+					),
+					array(
+						'label'   => __( 'IPN Handler URL', 'paid-memberships-pro' ),
+						'type'    => 'html',
+						'content' => function() {
+							?>
+							<p><code><?php echo esc_html( add_query_arg( 'action', 'ipnhandler', admin_url( 'admin-ajax.php' ) ) ); ?></code></p>
+							<p class="description">
+								<?php esc_html_e( 'You must set up this IPN (Instant Payment Notification) URL in your PayPal account to fully integrate with PayPal Express.', 'paid-memberships-pro' ); ?>
+								<a href="https://www.paidmembershipspro.com/setting-ipn-urls-paypal/?utm_source=plugin&utm_medium=pmpro-paymentsettings&utm_campaign=blog&utm_content=set-up-paypal-ipn" target="_blank"><?php esc_html_e( 'Read the documentation on setting up your PayPal IPN', 'paid-memberships-pro' ); ?></a>
+							</p>
+							<?php
+						},
+					),
+				),
+			) );
+		}
+
+		/**
+		 * Save settings for PayPal.
+		 *
+		 * @since 3.5
+		 */
+		public static function save_settings_fields() {
+			$settings_to_save = array(
+				'gateway_email',
+				'apiusername',
+				'apipassword',
+				'apisignature',
+				'paypalexpress_skip_confirmation'
+			);
+
+			foreach ( $settings_to_save as $setting ) {
+				if ( isset( $_REQUEST[ $setting ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verified in adminpages/paymentsettings.php before save_settings_fields() is called.
+					update_option( 'pmpro_' . $setting, sanitize_text_field( wp_unslash( $_REQUEST[ $setting ] ) ) ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Nonce verified in adminpages/paymentsettings.php before save_settings_fields() is called.
+				}
+			}
 		}
 
 		/**
@@ -254,41 +362,59 @@
 		 * @since 2.1
 		 */
 		static function pmpro_checkout_preheader() {
-			global $gateway, $pmpro_level;
+			global $gateway, $pmpro_level, $pmpro_review;
 
-			$default_gateway = pmpro_getOption("gateway");
+			// Check if the we already have an order that is being paid with PayPal Express. If not, bail.
+			if ( empty( $pmpro_review ) || ! is_a( $pmpro_review, 'MemberOrder' ) || $pmpro_review->gateway !== 'paypalexpress') {
+				return;
+			}
 
-			if(($gateway == "paypal" || $default_gateway == "paypal") && !pmpro_isLevelFree($pmpro_level)) {
-				wp_register_script( 'pmpro_paypal',
-                            plugins_url( 'js/pmpro-paypal.js', PMPRO_BASE_FILE ),
-                            array( 'jquery' ),
-                            PMPRO_VERSION );
-				//wp_localize_script( 'pmpro_paypal', 'pmpro_paypal', array());
-				wp_enqueue_script( 'pmpro_paypal' );
+			// If we are completing checkout immediately, make sure we immediately submit the checkout form with a valid nonce.
+			if ( ! empty( get_option('pmpro_paypalexpress_skip_confirmation') ) ) {
+				$_REQUEST['submit-checkout'] = 1;
+				$_REQUEST['pmpro_checkout_nonce'] = wp_create_nonce( 'pmpro_checkout_nonce' );
+			}
+
+			// Set some globals for compatibility with pre-3.2 checkout page templates.
+			global $pmpro_paypal_token;
+			$pmpro_paypal_token = $pmpro_review->paypal_token;
+
+			// For backwards compatibility with pre-3.2 checkout page templates, also check if the $_REQUEST['confirm'] attribute is set.
+			// If so, we want to process the chekcout form submission.
+			if ( ! empty( $_REQUEST['confirm'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Only routes to checkout processing, which still verifies pmpro_checkout_nonce in preheaders/checkout.php.
+				// Process the checkout form submission.
+				$_REQUEST['submit-checkout'] = 1;
 			}
 		}
 
 		/**
+
 		 * Save session vars before processing
 		 *
 		 * @since 1.8
+		 * @deprecated 2.12.3
 		 */
 		static function pmpro_checkout_before_processing() {
 			global $current_user, $gateway;
+
+			// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Deprecated since 2.12.3 and not hooked by core. It ran on pmpro_checkout_before_processing, after pmpro_checkout_nonce is verified in preheaders/checkout.php, and only stores values in the session.
+			_deprecated_function( __FUNCTION__, '2.12.3' );
 
 			//save user fields for PayPal Express
 			if(!$current_user->ID) {
 				//get values from post
 				if(isset($_REQUEST['username']))
-					$username = trim(sanitize_text_field($_REQUEST['username']));
+					$username = trim(sanitize_text_field(wp_unslash($_REQUEST['username'])));
 				else
 					$username = "";
-				if(isset($_REQUEST['password']))
-					$password = $_REQUEST['password'];
-				else
+				if(isset($_REQUEST['password'])) {
+					// Can't sanitize the password. Be careful.
+					$password = $_REQUEST['password']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.MissingUnslash -- Passwords must stay byte-for-byte identical to what WordPress core hashes and checks (slashed, unsanitized).
+				} else {
 					$password = "";
-				if(isset($_REQUEST['bemail']))
-					$bemail = sanitize_email($_REQUEST['bemail']);
+				}
+				if(isset($_REQUEST['bemail']) && is_string($_REQUEST['bemail']))
+					$bemail = sanitize_email(wp_unslash($_REQUEST['bemail']));
 				else
 					$bemail = "";
 
@@ -298,41 +424,41 @@
 				$_SESSION['pmpro_signup_email'] = $bemail;
 			}
 
-			if( !empty( $_REQUEST['tos'] ) ) {
-				$tospost = get_post( pmpro_getOption( 'tospage' ) );
-				$_SESSION['tos'] = array(
-					'post_id' => $tospost->ID,
-					'post_modified' => $tospost->post_modified,
-				);
-			}
-
 			//can use this hook to save some other variables to the session
+			// @deprecated 2.12.3
 			do_action("pmpro_paypalexpress_session_vars");
+			// phpcs:enable WordPress.Security.NonceVerification.Recommended
 		}
 
 		/**
 		 * Review and Confirmation code.
 		 *
 		 * @since 1.8
+		 * @deprecated 3.2
 		 */
 		static function pmpro_checkout_confirmed($pmpro_confirmed)
 		{
+			// phpcs:disable WordPress.Security.NonceVerification.Recommended -- Deprecated since 3.2 and not hooked by core. It handled the PayPal return URL, which can't carry a WordPress nonce; the order is looked up by PayPal token and the token is verified with PayPal.
+			_deprecated_function( __FUNCTION__, '3.2', 'PMProGateway_paypalexpress::process()' );
 			global $pmpro_msg, $pmpro_msgt, $pmpro_level, $current_user, $pmpro_review, $pmpro_paypal_token, $discount_code, $bemail;
 
 			//PayPal Express Call Backs
 			if(!empty($_REQUEST['review']))
 			{
 				if(!empty($_REQUEST['PayerID']))
-					$_SESSION['payer_id'] = sanitize_text_field($_REQUEST['PayerID']);
+					$_SESSION['payer_id'] = sanitize_text_field(wp_unslash($_REQUEST['PayerID']));
 				if(!empty($_REQUEST['paymentAmount']))
-					$_SESSION['paymentAmount'] = sanitize_text_field($_REQUEST['paymentAmount']);
+					$_SESSION['paymentAmount'] = sanitize_text_field(wp_unslash($_REQUEST['paymentAmount']));
 				if(!empty($_REQUEST['currencyCodeType']))
-					$_SESSION['currCodeType'] = sanitize_text_field($_REQUEST['currencyCodeType']);
+					$_SESSION['currCodeType'] = sanitize_text_field(wp_unslash($_REQUEST['currencyCodeType']));
 				if(!empty($_REQUEST['paymentType']))
-					$_SESSION['paymentType'] = sanitize_text_field($_REQUEST['paymentType']);
+					$_SESSION['paymentType'] = sanitize_text_field(wp_unslash($_REQUEST['paymentType']));
 
 				$morder = new MemberOrder();
-				$morder->getMemberOrderByPayPalToken(sanitize_text_field($_REQUEST['token']));
+				$morder->getMemberOrderByPayPalToken(isset($_REQUEST['token']) ? sanitize_text_field(wp_unslash($_REQUEST['token'])) : '');
+
+				// Pull checkout values from order meta.
+				pmpro_pull_checkout_data_from_order( $morder );
 
 				if( $morder->status === 'token' ){
 					$morder->Token = $morder->paypal_token; $pmpro_paypal_token = $morder->paypal_token;
@@ -361,41 +487,29 @@
 
 			if(empty($pmpro_msg) &&
 				(!empty($_REQUEST['confirm']) ||
-				(pmpro_getOption('paypalexpress_skip_confirmation') && $pmpro_review))
+				(get_option('pmpro_paypalexpress_skip_confirmation') && $pmpro_review))
 			)
 			{
 				$morder = new MemberOrder();
-				$morder->getMemberOrderByPayPalToken(sanitize_text_field($_REQUEST['token']));
+				$morder->getMemberOrderByPayPalToken(isset($_REQUEST['token']) ? sanitize_text_field(wp_unslash($_REQUEST['token'])) : '');
 				$morder->Token = $morder->paypal_token; $pmpro_paypal_token = $morder->paypal_token;
+
+				// Pull checkout values from order meta.
+				pmpro_pull_checkout_data_from_order( $morder );
+
 				if($morder->Token)
 				{
 					//set up values
 					$morder->membership_id = $pmpro_level->id;
 					$morder->membership_name = $pmpro_level->name;
-					$morder->discount_code = $discount_code;
-					$morder->InitialPayment = pmpro_round_price( $pmpro_level->initial_payment );
-					$morder->PaymentAmount = pmpro_round_price( $pmpro_level->billing_amount );
-					$morder->ProfileStartDate = date_i18n("Y-m-d\TH:i:s");
-					$morder->BillingPeriod = $pmpro_level->cycle_period;
+					$morder->subtotal = pmpro_round_price( $pmpro_level->initial_payment );
 					$morder->BillingFrequency = $pmpro_level->cycle_number;
-					$morder->Email = $bemail;
 
 					//setup level var
 					$morder->getMembershipLevelAtCheckout();
 
 					//tax
-					$morder->subtotal = $morder->InitialPayment;
 					$morder->getTax();
-					if($pmpro_level->billing_limit)
-						$morder->TotalBillingCycles = $pmpro_level->billing_limit;
-
-					if(pmpro_isLevelTrial($pmpro_level))
-					{
-						$morder->TrialBillingPeriod = $pmpro_level->cycle_period;
-						$morder->TrialBillingFrequency = $pmpro_level->cycle_number;
-						$morder->TrialBillingCycles = $pmpro_level->trial_limit;
-						$morder->TrialAmount = pmpro_round_price( $pmpro_level->trial_amount );
-					}
 
 					if($morder->confirm())
 					{
@@ -418,28 +532,31 @@
 				return array("pmpro_confirmed"=>$pmpro_confirmed, "morder"=>$morder);
 			else
 				return $pmpro_confirmed;
+			// phpcs:enable WordPress.Security.NonceVerification.Recommended
 		}
 
 		/**
 		 * Swap in user/pass/etc from session
 		 *
 		 * @since 1.8
+		 * @deprecated 3.2
 		 */
 		static function pmpro_checkout_new_user_array($new_user_array)
 		{
+			_deprecated_function( __FUNCTION__, '3.2' );
 			global $current_user;
 
 			if(!$current_user->ID)
 			{
 				//reload the user fields
 				if( ! empty( $_SESSION['pmpro_signup_username'] ) ){
-					$new_user_array['user_login'] = $_SESSION['pmpro_signup_username'];
+					$new_user_array['user_login'] = $_SESSION['pmpro_signup_username']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized before it was stored in the session by pmpro_checkout_before_processing().
 				}
 				if( ! empty( $_SESSION['pmpro_signup_password'] ) ){
-					$new_user_array['user_pass'] = $_SESSION['pmpro_signup_password'];
+					$new_user_array['user_pass'] = $_SESSION['pmpro_signup_password']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Passwords must stay byte-for-byte identical to what WordPress core hashes and checks (slashed, unsanitized).
 				}
 				if( ! empty( $_SESSION['pmpro_signup_email'] ) ){
-					$new_user_array['user_email'] = $_SESSION['pmpro_signup_email'];
+					$new_user_array['user_email'] = $_SESSION['pmpro_signup_email']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized with sanitize_email() before it was stored in the session by pmpro_checkout_before_processing().
 				}
 
 				//unset the user fields in session
@@ -454,33 +571,76 @@
 		/**
 		 * Process at checkout
 		 *
-		 * Repurposed in v2.0. The old process() method is now confirm().
+		 * @since 2.0 - The old process() method is now confirm().
+		 * @since 3.2 - This method now handles both sending users to PayPal and confirming checkouts.
 		 */
-		function process(&$order)
-		{
-			$order->payment_type = "PayPal Express";
-			$order->cardtype = "";
-			$order->ProfileStartDate = date_i18n("Y-m-d\TH:i:s", strtotime("+ " . $order->BillingFrequency . " " . $order->BillingPeriod));
-			$order->ProfileStartDate = apply_filters("pmpro_profile_start_date", $order->ProfileStartDate, $order);
-			// Convert to UTC for PayPal...
-			$order->ProfileStartDate = get_gmt_from_date( $order->ProfileStartDate, 'Y-m-d\TH:i:s\Z' );
+		function process( &$order ) {
+			// If the user has not yet been sent to PayPal, send them to pay.
+			if ( empty( $order->paypal_token ) ) {
+				// No. Send them to PayPal.
+				$order->payment_type = "PayPal Express";
+				$order->cardtype = "";
 
-			return $this->setExpressCheckout($order);
+				return $this->setExpressCheckout($order);
+			}
+
+			// We know that the user had been sent to pay and has re-submitted the chekcout form to confirm.
+			// Make sure the order is in `token` status.
+			if ( $order->status !== 'token' ) {
+				pmpro_setMessage( __("Checkout was already processed.", 'paid-memberships-pro' ), 'pmpro_error' );
+				return false;
+			}
+
+			// Make sure we still have the PayPal token.
+			if ( empty( $order->paypal_token ) ) {
+				pmpro_setMessage( __( 'The PayPal Token was lost.', 'paid-memberships-pro' ), 'pmpro_error' );
+				return false;
+			}
+
+			// Validate the PayPal Token.
+			if ( ! $order->Gateway->getExpressCheckoutDetails($order) ) {
+				pmpro_setMessage( $order->error, 'pmpro_error' );
+				return false;
+			}
+
+			//set up values
+			$pmpro_level = $order->getMembershipLevelAtCheckout();
+			$user        = get_userdata( $order->user_id );
+			$order->membership_id = $pmpro_level->id;
+			$order->membership_name = $pmpro_level->name;
+			$order->subtotal = pmpro_round_price( $pmpro_level->initial_payment );
+
+			//setup level var
+			$order->getMembershipLevelAtCheckout();
+
+			//tax
+			$order->getTax();
+
+			if ( pmpro_isLevelRecurring( $order->membership_level ) ) {
+				$success = $this->subscribe($order);
+			} else {
+				$success = $this->charge($order);
+			}
+
+			if ( ! $success ) {
+				pmpro_setMessage( $order->error, 'pmpro_error' );
+				return false;
+			}
+
+			return true;
 		}
 
 		/**
 		 * Process charge or subscription after confirmation.
 		 *
 		 * @since 1.8
+		 * @deprecated 3.2
 		 */
 		function confirm(&$order)
 		{
+			_deprecated_function( __FUNCTION__, '3.2', 'PMProGateway_paypalexpress::process()' );
 			if(pmpro_isLevelRecurring($order->membership_level))
 			{
-				$order->ProfileStartDate = date_i18n("Y-m-d\TH:i:s", strtotime("+ " . $order->BillingFrequency . " " . $order->BillingPeriod, current_time("timestamp")));
-				$order->ProfileStartDate = apply_filters("pmpro_profile_start_date", $order->ProfileStartDate, $order);
-				// Convert to UTC for PayPal...
-				$order->ProfileStartDate = get_gmt_from_date( $order->ProfileStartDate, 'Y-m-d\TH:i:s\Z' );
 				return $this->subscribe($order);
 			}
 			else
@@ -500,12 +660,21 @@
 			?>
 			<span id="pmpro_paypalexpress_checkout" <?php if(($gateway != "paypalexpress" && $gateway != "paypalstandard") || !$pmpro_requirebilling) { ?>style="display: none;"<?php } ?>>
 				<input type="hidden" name="submit-checkout" value="1" />
-				<input type="image" id="pmpro_btn-submit-paypalexpress" class="<?php echo pmpro_get_element_class( 'pmpro_btn-submit-checkout' ); ?>" value="<?php esc_attr_e('Check Out with PayPal', 'paid-memberships-pro' );?> &raquo;" src="<?php echo apply_filters("pmpro_paypal_button_image", "https://www.paypalobjects.com/webstatic/en_US/i/buttons/checkout-logo-medium.png");?>" />
+				<button type="submit" id="pmpro_btn-submit-paypalexpress" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_btn pmpro_btn-submit-checkout pmpro_btn-submit-checkout-paypal' ) ); ?>">
+					<?php
+						printf(
+							/* translators: %s is the PayPal logo */
+							esc_html__( 'Check Out With %s', 'paid-memberships-pro' ),
+							'<span class="pmpro_btn-submit-checkout-paypal-image"></span>'
+						);
+					?>
+					<span class="screen-reader-text"><?php esc_html_e( 'PayPal', 'paid-memberships-pro' ); ?></span>
+				</button>
 			</span>
 
 			<span id="pmpro_submit_span" <?php if(($gateway == "paypalexpress" || $gateway == "paypalstandard") && $pmpro_requirebilling) { ?>style="display: none;"<?php } ?>>
 				<input type="hidden" name="submit-checkout" value="1" />
-				<input type="submit" id="pmpro_btn-submit" class="<?php echo pmpro_get_element_class( 'pmpro_btn pmpro_btn-submit-checkout', 'pmpro_btn-submit-checkout' ); ?>" value="<?php if($pmpro_requirebilling) { _e('Submit and Check Out', 'paid-memberships-pro' ); } else { _e('Submit and Confirm', 'paid-memberships-pro' );}?> &raquo;" />
+				<input type="submit" id="pmpro_btn-submit" class="<?php echo esc_attr( pmpro_get_element_class( 'pmpro_btn pmpro_btn-submit-checkout', 'pmpro_btn-submit-checkout' ) ); ?>" value="<?php if($pmpro_requirebilling) { esc_html_e('Submit and Check Out', 'paid-memberships-pro' ); } else { esc_html_e('Submit and Confirm', 'paid-memberships-pro' );}?>" />
 			</span>
 			<?php
 
@@ -523,53 +692,51 @@
 
 			//clean up a couple values
 			$order->payment_type = "PayPal Express";
-			$order->CardType = "";
 			$order->cardtype = "";
 
+			// Get the level.
+			$level = $order->getMembershipLevelAtCheckout();
+
 			//taxes on initial amount
-			$initial_payment = $order->InitialPayment;
+			$initial_payment = $order->subtotal;
 			$initial_payment_tax = $order->getTaxForPrice($initial_payment);
 
 			// Note: SetExpressCheckout expects this amount to be the total including tax.
 			$initial_payment = pmpro_round_price_as_string( (float) $initial_payment + (float) $initial_payment_tax );
 
+			$profile_start_date = pmpro_calculate_profile_start_date( $order, 'Y-m-d\TH:i:s\Z' );
+
 			//paypal profile stuff
 			$nvpStr = "";
 			$nvpStr .="&AMT=" . $initial_payment . "&CURRENCYCODE=" . $pmpro_currency;
-			if(!empty($order->ProfileStartDate) && strtotime($order->ProfileStartDate, current_time("timestamp")) > 0)
-				$nvpStr .= "&PROFILESTARTDATE=" . $order->ProfileStartDate;
-			if(!empty($order->BillingFrequency))
-				$nvpStr .= "&BILLINGPERIOD=" . $order->BillingPeriod . "&BILLINGFREQUENCY=" . $order->BillingFrequency . "&AUTOBILLOUTAMT=AddToNextBilling&L_BILLINGTYPE0=RecurringPayments";
-			$nvpStr .= "&DESC=" . urlencode( apply_filters( 'pmpro_paypal_level_description', substr($order->membership_level->name . " at " . get_bloginfo("name"), 0, 127), $order->membership_level->name, $order, get_bloginfo("name")) );
+			if(!empty($profile_start_date) && strtotime($profile_start_date, current_time("timestamp")) > 0)
+				$nvpStr .= "&PROFILESTARTDATE=" . $profile_start_date;
+			if(!empty($level->cycle_number))
+				$nvpStr .= "&BILLINGPERIOD=" . $level->cycle_period . "&BILLINGFREQUENCY=" . $level->cycle_number . "&AUTOBILLOUTAMT=AddToNextBilling&L_BILLINGTYPE0=RecurringPayments";
+			$nvpStr .= "&DESC=" . urlencode( apply_filters( 'pmpro_paypal_level_description', substr( trim( $order->membership_level->name ) . " at " . trim( get_bloginfo( "name" ) ), 0, 127 ), trim( $order->membership_level->name ), $order, trim( get_bloginfo( "name" ) ) ) );
 			$nvpStr .= "&NOTIFYURL=" . urlencode( add_query_arg( 'action', 'ipnhandler', admin_url('admin-ajax.php') ) );
 			$nvpStr .= "&NOSHIPPING=1&L_BILLINGAGREEMENTDESCRIPTION0=" . urlencode( apply_filters( 'pmpro_paypal_level_description', substr($order->membership_level->name . " at " . get_bloginfo("name"), 0, 127), $order->membership_level->name, $order, get_bloginfo("name") ) ) . "&L_PAYMENTTYPE0=Any";
 
 			//if billing cycles are defined
-			if(!empty($order->TotalBillingCycles))
-				$nvpStr .= "&TOTALBILLINGCYCLES=" . $order->TotalBillingCycles;
+			if(!empty($level->billing_limit))
+				$nvpStr .= "&TOTALBILLINGCYCLES=" . $level->billing_limit;
 
 			//if a trial period is defined
-			if(!empty($order->TrialBillingPeriod))
-			{
-				$trial_amount = $order->TrialAmount;
+			if( pmpro_isLevelTrial( $level ) ) {
+				$trial_amount = pmpro_round_price( $level->trial_amount );
 				$trial_tax = $order->getTaxForPrice($trial_amount);
 
 				// Note: SetExpressCheckout expects this amount to be the total including tax.
 				$trial_amount = pmpro_round_price_as_string( (float) $trial_amount + (float) $trial_tax );
 
-				$nvpStr .= "&TRIALBILLINGPERIOD=" . $order->TrialBillingPeriod . "&TRIALBILLINGFREQUENCY=" . $order->TrialBillingFrequency . "&TRIALAMT=" . $trial_amount;
+				$nvpStr .= "&TRIALBILLINGPERIOD=" . $level->cycle_period . "&TRIALBILLINGFREQUENCY=" . $level->cycle_frequency . "&TRIALAMT=" . $trial_amount . "&TRIALTOTALBILLINGCYCLES=" . $level->trial_limit;
 			}
-			if(!empty($order->TrialBillingCycles))
-				$nvpStr .= "&TRIALTOTALBILLINGCYCLES=" . $order->TrialBillingCycles;
 
-			if(!empty($order->discount_code))
-			{
-				$nvpStr .= "&ReturnUrl=" . urlencode(pmpro_url("checkout", "?level=" . $order->membership_level->id . "&discount_code=" . $order->discount_code . "&review=" . $order->code));
-			}
-			else
-			{
-				$nvpStr .= "&ReturnUrl=" . urlencode(pmpro_url("checkout", "?level=" . $order->membership_level->id . "&review=" . $order->code));
-			}
+			// Build the return URL. If we are skipping confirmation, add the necessary parameters to make the checkout form appear as if it was submitted.
+			$return_url_params = array(
+				'pmpro_order' => $order->code,
+			);
+			$nvpStr .= "&ReturnUrl=" . urlencode( add_query_arg( $return_url_params, pmpro_url( 'checkout' ) ) );
 
 			$additional_parameters = apply_filters("pmpro_paypal_express_return_url_parameters", array());
 			if(!empty($additional_parameters))
@@ -598,6 +765,9 @@
 				//update order
 				$order->saveOrder();
 
+				// Save checkout information to order meta.
+				pmpro_save_checkout_data_to_order( $order );
+
 				/**
 				 * Allow performing actions just before sending the user to the gateway to complete the payment.
 				 *
@@ -609,13 +779,13 @@
 
 				//redirect to paypal
 				$paypal_url = "https://www.paypal.com/webscr?cmd=_express-checkout&useraction=commit&token=" . $this->httpParsedResponseAr['TOKEN'];
-				$environment = pmpro_getOption("gateway_environment");
+				$environment = get_option("pmpro_gateway_environment");
 				if("sandbox" === $environment || "beta-sandbox" === $environment)
 				{
 					$paypal_url = "https://www.sandbox.paypal.com/webscr?cmd=_express-checkout&useraction=commit&token="  . $this->httpParsedResponseAr['TOKEN'];
 				}
 
-				wp_redirect($paypal_url);
+				wp_redirect($paypal_url); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect -- Redirects to the PayPal Express Checkout URL (offsite by design).
 				exit;
 
 				//exit('SetExpressCheckout Completed Successfully: '.print_r($this->httpParsedResponseAr, true));
@@ -634,7 +804,7 @@
 
 		function getExpressCheckoutDetails(&$order)
 		{
-			$nvpStr="&TOKEN=".$order->Token;
+			$nvpStr="&TOKEN=".$order->paypal_token;
 
 			$nvpStr = apply_filters("pmpro_get_express_checkout_details_nvpstr", $nvpStr, $order);
 
@@ -645,12 +815,6 @@
 			$this->httpParsedResponseAr = $this->PPHttpPost('GetExpressCheckoutDetails', $nvpStr);
 
 			if("SUCCESS" == strtoupper($this->httpParsedResponseAr["ACK"]) || "SUCCESSWITHWARNING" == strtoupper($this->httpParsedResponseAr["ACK"])) {
-				$order->status = "review";
-
-				//update order
-
-				$order->saveOrder();
-
 				return true;
 			} else  {
 				$order->errorcode = $this->httpParsedResponseAr['L_ERRORCODE0'];
@@ -669,7 +833,7 @@
 				$order->code = $order->getRandomCode();
 
 			//taxes on the amount
-			$amount = $order->InitialPayment;
+			$amount = $order->subtotal;
 			$amount_tax = $order->getTaxForPrice($amount);
 			$order->subtotal = $amount;
 
@@ -678,20 +842,20 @@
 
 			//paypal profile stuff
 			$nvpStr = "";
-			if(!empty($order->Token))
-				$nvpStr .= "&TOKEN=" . $order->Token;
+			if(!empty($order->paypal_token))
+				$nvpStr .= "&TOKEN=" . $order->paypal_token;
 			$nvpStr .="&AMT=" . $amount . "&CURRENCYCODE=" . $pmpro_currency;
 			/*
 			if(!empty($amount_tax))
 				$nvpStr .= "&TAXAMT=" . $amount_tax;
 			*/
-			if(!empty($order->BillingFrequency))
-				$nvpStr .= "&BILLINGPERIOD=" . $order->BillingPeriod . "&BILLINGFREQUENCY=" . $order->BillingFrequency . "&AUTOBILLOUTAMT=AddToNextBilling";
+			if(!empty($level->cycle_number))
+				$nvpStr .= "&BILLINGPERIOD=" . $level->cycle_period . "&BILLINGFREQUENCY=" . $level->cycle_number . "&AUTOBILLOUTAMT=AddToNextBilling";
 			$nvpStr .= "&DESC=" . urlencode( apply_filters( 'pmpro_paypal_level_description', substr($order->membership_level->name . " at " . get_bloginfo("name"), 0, 127), $order->membership_level->name, $order, get_bloginfo("name")) );
 			$nvpStr .= "&NOTIFYURL=" . urlencode( add_query_arg( 'action', 'ipnhandler', admin_url('admin-ajax.php') ) );
 			$nvpStr .= "&NOSHIPPING=1";
 
-			$nvpStr .= "&PAYERID=" . $_SESSION['payer_id'] . "&PAYMENTACTION=sale";
+			$nvpStr .= "&PAYERID=" . ( isset( $_REQUEST['PayerID'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['PayerID'] ) ) : '' ) . "&PAYMENTACTION=sale"; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Called from checkout processing after pmpro_checkout_nonce is verified in preheaders/checkout.php; PayerID is PayPal's return value and PayPal validates it with the token.
 
 			$nvpStr = apply_filters("pmpro_do_express_checkout_payment_nvpstr", $nvpStr, $order);
 
@@ -727,38 +891,81 @@
 			$order = apply_filters("pmpro_subscribe_order", $order, $this);
 
 			//taxes on initial amount
-			$initial_payment = $order->InitialPayment;
+			$initial_payment = $order->subtotal;
 			$initial_payment_tax = $order->getTaxForPrice($initial_payment);
 
 			// Note: CreateRecurringPaymentsProfile expects this amount to be the total including tax.
 			$initial_payment = pmpro_round_price_as_string( (float) $initial_payment + (float) $initial_payment_tax );
 
 			//taxes on the amount
-			$amount = $order->PaymentAmount;
+			$level = $order->getMembershipLevelAtCheckout();
+			$amount = $level->billing_amount;
 			$amount_tax = $order->getTaxForPrice( $amount );
 
 			// Note: CreateRecurringPaymentsProfile expects this amount to be the total excluding tax.
 			$amount = pmpro_round_price_as_string( $amount );
 
+			// Adding back a fix from filters.php that allowed for start dates > 1 year out.
+			$profile_start_date = pmpro_calculate_profile_start_date( $order, 'Y-m-d\TH:i:s\Z' );
+			$original_start_date = $profile_start_date;
+			$one_year_out = strtotime( '+1 Year', current_time( 'timestamp' ) );
+			$two_years_out = strtotime( '+2 Year', current_time( 'timestamp' ) );
+			$one_year_out_date = date_i18n( 'Y-m-d\TH:i:s\Z', $one_year_out );
+			$days_past = floor( ( strtotime( $profile_start_date ) - $one_year_out ) / DAY_IN_SECONDS );
+			$trial_amount = pmpro_round_price( $level->trial_amount );
+			$trial_period = $level->cycle_period;
+			$trial_frequency = $level->cycle_number;
+			$trial_cycles = $level->trial_limit;
+			if ( ! empty( $profile_start_date ) && $profile_start_date > $one_year_out_date ) {
+				// Max out the profile start date at 1 year out no matter what.
+				$profile_start_date = $one_year_out_date;
+
+				// Try to squeeze into the trial.
+				if ( empty( $trial_cycles ) && $days_past > 0 ) {
+					// Update the trial information.
+					$trial_amount = 0;
+					$trial_period = 'Day';
+					$trial_frequency = min( 365, $days_past );
+					$trial_cycles = 1;
+				}
+	
+				// if we were going to try to push it more than 2 years out, let's notify the admin
+				if ( ! empty( $trial_cycles ) || strtotime( $profile_start_date ) > $two_years_out ) {
+					// setup user data
+					global $current_user;
+					if ( empty( $order->user_id ) ) {
+						$order->user_id = $current_user->ID;
+					}
+					$order->getUser();
+	
+					// create email
+					$pmproemail = new PMProEmail();
+					$body = '<p>' . __( "There was a potential issue while setting the 'Profile Start Date' for a user's subscription at checkout. PayPal does not allow one to set a Profile Start Date further than 1 year out. Typically, this is not an issue, but sometimes a combination of custom code or add ons for PMPro (e.g. the Prorating or Auto-renewal Checkbox add ons) will try to set a Profile Start Date out past 1 year in order to respect an existing user's original expiration date before they checked out. The user's information is below. PMPro has allowed the checkout and simply restricted the Profile Start Date to 1 year out with a possible additional free Trial of up to 1 year. You should double check this information to determine if maybe the user has overpaid or otherwise needs to be addressed. If you get many of these emails, you should consider adjusting your custom code to avoid these situations.", 'paid-memberships-pro' ) . '</p>';
+					$body .= '<p>' . sprintf( __( 'User: %1$s<br />Email: %2$s<br />Membership Level: %3$s<br />Order #: %4$s<br />Original Profile Start Date: %5$s<br />Adjusted Profile Start Date: %6$s<br />Trial Period: %7$s<br />Trial Frequency: %8$s<br />', 'paid-memberships-pro' ), $order->user->user_nicename, $order->user->user_email, $level->name, $order->code, $original_start_date , $one_year_out_date, $trial_period, $trial_frequency ) . '</p>';
+					$pmproemail->template = 'profile_start_date_limit_check';
+					$pmproemail->subject = sprintf( __( 'Profile Start Date Issue Detected and Fixed at %s', 'paid-memberships-pro' ), get_bloginfo( 'name' ) );
+					$pmproemail->data = array( 'body' => $body );
+					$pmproemail->sendEmail( get_bloginfo( 'admin_email' ) );
+				}
+			}
+
 			//paypal profile stuff
 			$nvpStr = "";
-			if(!empty($order->Token))
-				$nvpStr .= "&TOKEN=" . $order->Token;
-			$nvpStr .="&INITAMT=" . $initial_payment . "&AMT=" . $amount . "&CURRENCYCODE=" . $pmpro_currency . "&PROFILESTARTDATE=" . $order->ProfileStartDate;
+			if(!empty($order->paypal_token))
+				$nvpStr .= "&TOKEN=" . $order->paypal_token;
+			$nvpStr .="&INITAMT=" . $initial_payment . "&AMT=" . $amount . "&CURRENCYCODE=" . $pmpro_currency . "&PROFILESTARTDATE=" . $profile_start_date;
 			if(!empty($amount_tax))
 				$nvpStr .= "&TAXAMT=" . pmpro_round_price_as_string( $amount_tax );
-			$nvpStr .= "&BILLINGPERIOD=" . $order->BillingPeriod . "&BILLINGFREQUENCY=" . $order->BillingFrequency . "&AUTOBILLOUTAMT=AddToNextBilling";
+			$nvpStr .= "&BILLINGPERIOD=" . $level->cycle_period . "&BILLINGFREQUENCY=" . $level->cycle_number . "&AUTOBILLOUTAMT=AddToNextBilling";
 			$nvpStr .= "&NOTIFYURL=" . urlencode( add_query_arg( 'action', 'ipnhandler', admin_url('admin-ajax.php') ) );
 			$nvpStr .= "&DESC=" . urlencode( apply_filters( 'pmpro_paypal_level_description', substr($order->membership_level->name . " at " . get_bloginfo("name"), 0, 127), $order->membership_level->name, $order, get_bloginfo("name")) );
 
 			//if billing cycles are defined
-			if(!empty($order->TotalBillingCycles))
-				$nvpStr .= "&TOTALBILLINGCYCLES=" . $order->TotalBillingCycles;
+			if(!empty($level->billing_limit))
+				$nvpStr .= "&TOTALBILLINGCYCLES=" . $level->billing_limit;
 
 			//if a trial period is defined
-			if(!empty($order->TrialBillingPeriod))
-			{
-				$trial_amount = $order->TrialAmount;
+			if ( pmpro_isLevelTrial( $level ) ) {
 				$trial_tax = $order->getTaxForPrice($trial_amount);
 
 				/*
@@ -768,10 +975,8 @@
 				 */
 				$trial_amount = pmpro_round_price_as_string( (float) $trial_amount + (float) $trial_tax );
 
-				$nvpStr .= "&TRIALBILLINGPERIOD=" . $order->TrialBillingPeriod . "&TRIALBILLINGFREQUENCY=" . $order->TrialBillingFrequency . "&TRIALAMT=" . $trial_amount;
+				$nvpStr .= "&TRIALBILLINGPERIOD=" . $trial_period . "&TRIALBILLINGFREQUENCY=" . $trial_frequency . "&TRIALAMT=" . $trial_amount . "&TRIALTOTALBILLINGCYCLES=" . $trial_cycles;
 			}
-			if(!empty($order->TrialBillingCycles))
-				$nvpStr .= "&TRIALTOTALBILLINGCYCLES=" . $order->TrialBillingCycles;
 
 			// Set MAXFAILEDPAYMENTS so subscriptions are cancelled after 1 failed payment.
 			$nvpStr .= "&MAXFAILEDPAYMENTS=1";
@@ -798,16 +1003,8 @@
 					$order->payment_transaction_id = urldecode($this->httpParsedResponseAr['PROFILEID']);
 					$order->subscription_transaction_id = urldecode($this->httpParsedResponseAr['PROFILEID']);
 
-					//update order
-					$order->saveOrder();
-
 					return true;
 				} else {
-					// stop processing the review request on checkout page
-					$pmpro_review = false;
-
-					$order->status = "error";
-
 					// this is wrong, but we don't know the real transaction id at this point
 					$order->payment_transaction_id = urldecode($this->httpParsedResponseAr['PROFILEID']);
 					$order->subscription_transaction_id = urldecode($this->httpParsedResponseAr['PROFILEID']);
@@ -823,8 +1020,6 @@
 				}
 			} else  {
 				// stop processing the review request on checkout page
-				$pmpro_review = false;
-
 				$order->errorcode = $this->httpParsedResponseAr['L_ERRORCODE0'];
 				$order->error = urldecode($this->httpParsedResponseAr['L_LONGMESSAGE0']);
 				$order->shorterror = urldecode($this->httpParsedResponseAr['L_SHORTMESSAGE0']);
@@ -836,15 +1031,6 @@
 		function cancel(&$order) {
 			// Always cancel the order locally even if PayPal might fail
 			$order->updateStatus("cancelled");
-
-			// If we're processing an IPN request for this subscription, it's already cancelled at PayPal.
-			if ( ( ! empty( $_POST['subscr_id'] ) && $_POST['subscr_id'] == $order->subscription_transaction_id ) ||
-				 ( ! empty( $_POST['recurring_payment_id'] ) && $_POST['recurring_payment_id'] == $order->subscription_transaction_id ) ) {
-				// recurring_payment_failed transaction still need to be cancelled
-				if ( $_POST['txn_type'] !== 'recurring_payment_failed' ) {
-					return true;
-				}
-			}
 
 			// Cancel at gateway
 			return $this->cancelSubscriptionAtGateway($order);
@@ -859,7 +1045,8 @@
 
 			$this->httpParsedResponseAr = $this->PPHttpPost('ManageRecurringPaymentsProfileStatus', $nvpStr);
 
-			if("SUCCESS" == strtoupper($this->httpParsedResponseAr["ACK"]) || "SUCCESSWITHWARNING" == strtoupper($this->httpParsedResponseAr["ACK"])) {
+			if("SUCCESS" == strtoupper($this->httpParsedResponseAr["ACK"]) || "SUCCESSWITHWARNING" == strtoupper($this->httpParsedResponseAr["ACK"]) || ( ! empty( $this->httpParsedResponseAr['L_ERRORCODE0'] ) && $this->httpParsedResponseAr['L_ERRORCODE0'] == '11556' ) ) {
+				// Note: Error code 11556 means "Invalid profile status for cancel action; profile should be active or suspended". In other words, the profile is already cancelled.
 				return true;
 			} else {
 				$order->errorcode = $this->httpParsedResponseAr['L_ERRORCODE0'];
@@ -868,6 +1055,20 @@
 
 				return false;
 			}
+		}
+
+		/**
+		 * Cancels a subscription in PayPal.
+		 *
+		 * @param PMPro_Subscription $subscription to cancel.
+	 	 */
+		function cancel_subscription( $subscription ) {
+			// Build the nvp string for PayPal API
+			$nvpStr = '&PROFILEID=' . urlencode( $subscription->get_subscription_transaction_id() ) . '&ACTION=Cancel&NOTE=' . urlencode('User requested cancel.');
+			$this->httpParsedResponseAr = $this->PPHttpPost('ManageRecurringPaymentsProfileStatus', $nvpStr);
+
+			// Note: Error code 11556 means "Invalid profile status for cancel action; profile should be active or suspended". In other words, the profile is already cancelled.
+			return ( 'SUCCESS' == strtoupper( $this->httpParsedResponseAr['ACK'] ) || 'SUCCESSWITHWARNING' == strtoupper( $this->httpParsedResponseAr['ACK'] ) || ( ! empty( $this->httpParsedResponseAr['L_ERRORCODE0'] ) && $this->httpParsedResponseAr['L_ERRORCODE0'] == '11556' ) );
 		}
 
 		function getSubscriptionStatus(&$order)
@@ -897,6 +1098,68 @@
 			}
 		}
 
+		/**
+		 * Pull subscription info from PayPal.
+		 *
+		 * @param PMPro_Subscription $subscription to pull data for.
+		 *
+		 * @return string|null Error message is returned if update fails.
+		 */
+		function update_subscription_info( $subscription ) {
+			$API_UserName	= get_option( "pmpro_apiusername" );
+			$API_Password	= get_option( "pmpro_apipassword" );
+			$API_Signature = get_option( "pmpro_apisignature" );
+			if ( empty( $API_UserName ) || empty( $API_Password ) || empty( $API_Signature ) ) {
+				return __( "PayPal login credentials are not set.", 'paid-memberships-pro' );
+			}
+
+			$subscription_transaction_id = $subscription->get_subscription_transaction_id();
+			if ( empty( $subscription_transaction_id ) ) {
+				return __( 'Subscription transaction ID is empty.', 'paid-memberships-pro' );
+			}
+
+			//paypal profile stuff
+			$nvpStr = "";
+			$nvpStr .= "&PROFILEID=" . urlencode( $subscription_transaction_id );
+			$response = $this->PPHttpPost('GetRecurringPaymentsProfileDetails', $nvpStr);
+
+			if("SUCCESS" == strtoupper($response["ACK"]) || "SUCCESSWITHWARNING" == strtoupper($response["ACK"])) {
+				// Found subscription.
+				$update_array = array();
+
+				// PayPal doesn't send the subscription start date, so let's take a guess based on the user's order history.
+				$oldest_orders = $subscription->get_orders( [
+					'limit'   => 1,
+					'orderby' => '`timestamp` ASC, `id` ASC',
+				] );
+
+				if ( ! empty( $oldest_orders ) ) {
+					$oldest_order = current( $oldest_orders );
+
+					$update_array['startdate'] = date_i18n( 'Y-m-d H:i:s', $oldest_order->getTimestamp( true ) );
+				}
+
+				if ( in_array( $response['STATUS'], array( 'Pending', 'Active' ), true ) ) {
+					// Subscription is active.
+					$update_array['status'] = 'active';
+					$update_array['next_payment_date'] = date( 'Y-m-d H:i:s', strtotime( $response['NEXTBILLINGDATE'] ) );
+					$update_array['billing_amount'] = floatval( $response['REGULARAMT'] );
+					$update_array['cycle_number'] = (int) $response['REGULARBILLINGFREQUENCY'];
+					$update_array['cycle_period'] = $response['REGULARBILLINGPERIOD'];
+					$update_array['trial_amount'] = empty( $response['TRIALAMT'] ) ? 0 : floatval( $response['TRIALAMT'] );
+					$update_array['trial_limit'] = empty( $response['TRIALTOTALBILLINGCYCLES'] ) ? 0 : (int) $response['TRIALTOTALBILLINGCYCLES'];
+					$update_array['billing_limit'] = empty( $response['REGULARTOTALBILLINGCYCLES'] ) ? 0 : (int) $response['REGULARTOTALBILLINGCYCLES'];
+				} else {
+					// Subscription is no longer active.
+					// Can't fill subscription end date, $request only has the date of the last payment.
+					$update_array['status'] = 'cancelled';
+				}
+				$subscription->set( $update_array );
+			} else {
+				return __( 'Subscription could not be found.', 'paid-memberships-pro' );
+			}
+		}
+		
 		function getTransactionStatus(&$order) {
 			$transaction_details = $order->Gateway->getTransactionDetailsByOrder( $order );
 			if( false === $transaction_details ){
@@ -1024,7 +1287,8 @@
 				if(!empty($order->id) && !empty($order->subscription_transaction_id) && $order->gateway == "paypalexpress")
 				{
 					//get the subscription status
-					$status = $order->getGatewaySubscriptionStatus();
+					$gateway = new PMProGateway_paypalexpress();
+					$status = $gateway->getSubscriptionStatus($order);
 
 					if(!empty($status) && !empty($status['NEXTBILLINGDATE']))
 					{
@@ -1075,7 +1339,7 @@
 				// exiting is never a good user experience and it's hard to debug, but we can
 				// at least leave a trace in error log to make it easier to see this happening
 				error_log( "Unable to complete $methodName_ request with $nvpStr_: " . $httpParsedResponseAr->get_error_message() );
-				die( "Unable to complete $methodName_ request with $nvpStr_: " . $httpParsedResponseAr->get_error_message() );
+				die( esc_html( "Unable to complete $methodName_ request with $nvpStr_: " . $httpParsedResponseAr->get_error_message() ) );
 			}
 
 			/**
@@ -1094,7 +1358,7 @@
 		/**
 		 * Refunds an order (only supports full amounts)
 		 *
-		 * @param bool    $succes Status of the refund (default: false)
+		 * @param bool    $success Status of the refund (default: false)
 		 * @param object  $morder The Member Order Object
 		 * @since 2.8
 		 * 
@@ -1104,6 +1368,7 @@
 
 			//need a transaction id
 			if ( empty( $morder->payment_transaction_id ) ) {
+				$morder->error = __( 'This order has no payment transaction ID to refund.', 'paid-memberships-pro' );
 				return false;
 			}
 
@@ -1125,7 +1390,7 @@
 				global $current_user;
 
 				// translators: %1$s is the Transaction ID. %2$s is the user display name that initiated the refund.
-				$morder->notes = trim( $morder->notes . ' ' . sprintf( __('Admin: Order successfully refunded on %1$s for transaction ID %2$s by %3$s.', 'paid-memberships-pro' ), date_i18n('Y-m-d H:i:s'), $transaction_id, $current_user->display_name ) );
+				$morder->add_order_note( sprintf( __('Admin: Order successfully refunded for transaction ID %1$s by %2$s.', 'paid-memberships-pro' ), $transaction_id, $current_user->display_name ) );
 
 				$user = get_user_by( 'id', $morder->user_id );
 				//send an email to the member
@@ -1138,9 +1403,10 @@
 
 			} else {
 				//The refund failed, so lets return the gateway message
-				
-				// translators: %1$s is the Transaction ID. %1$s is the Gateway Error
-				$morder->notes = trim( $morder->notes .' '. sprintf( __( 'Admin: There was a problem processing a refund for transaction ID %1$s. Gateway Error: %2$s.', 'paid-memberships-pro' ), $transaction_id, $httpParsedResponseAr['L_LONGMESSAGE0'] ) );
+				$morder->error = urldecode( $httpParsedResponseAr['L_LONGMESSAGE0'] );
+
+				// translators: %1$s is the Transaction ID. %2$s is the Gateway Error.
+				$morder->add_order_note( sprintf( __( 'Admin: There was a problem processing a refund for transaction ID %1$s. Gateway Error: %2$s.', 'paid-memberships-pro' ), $transaction_id, $httpParsedResponseAr['L_LONGMESSAGE0'] ) );
 			}
 
 			$morder->SaveOrder();
@@ -1161,9 +1427,9 @@
 			global $gateway_environment;
 			$environment = $gateway_environment;
 
-			$API_UserName = pmpro_getOption("apiusername");
-			$API_Password = pmpro_getOption("apipassword");
-			$API_Signature = pmpro_getOption("apisignature");
+			$API_UserName = get_option("pmpro_apiusername");
+			$API_Password = get_option("pmpro_apipassword");
+			$API_Signature = get_option("pmpro_apisignature");
 			$API_Endpoint = "https://api-3t.paypal.com/nvp";
 			if("sandbox" === $environment || "beta-sandbox" === $environment) {
 				$API_Endpoint = "https://api-3t.$environment.paypal.com/nvp";
@@ -1177,11 +1443,10 @@
 			//post to PayPal
 			$response = wp_remote_post( $API_Endpoint, array(
 					'timeout' => 60,
-					'sslverify' => FALSE,
 					'httpversion' => '1.1',
 					'body' => $nvpreq,
 					'headers'     => array(
-						'content-type'      => 'application/json',
+						'content-type'      => 'application/x-www-form-urlencoded',
 						'PayPal-Request-Id' => $uuid,
 					),
 			    )
@@ -1197,7 +1462,7 @@
 
             //check for valid response
             if((0 == sizeof($httpParsedResponseAr)) || !array_key_exists('ACK', $httpParsedResponseAr)) {
-	            return new WP_Error( 1, "Invalid HTTP Response for POST request($nvpreq) to $API_Endpoint." );
+	            return new WP_Error( 1, "Invalid HTTP Response for POST request to $API_Endpoint." );
             }
 
 			return $httpParsedResponseAr;
@@ -1227,7 +1492,7 @@
 			// But never sleep less than the base sleep seconds.
 			$sleepSeconds = \max( self::$initialNetworkRetryDelay, $sleepSeconds );
 
-			return $sleepSeconds;
+			return (int)$sleepSeconds;
 		}
 
 		/**

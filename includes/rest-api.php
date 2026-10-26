@@ -1,5 +1,11 @@
 <?php
 
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- REST endpoints query PMPro custom tables, which have no WordPress API or object cache layer.
+
 if ( class_exists( 'WP_REST_Controller' ) ) {
 	class PMPro_REST_API_Routes extends WP_REST_Controller {
 		
@@ -136,6 +142,21 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 		));
 
 		/**
+		 * Get all membership levels.
+		 * @since 3.0
+		 * Example: https://example.com/wp-json/pmpro/v1/membership_levels
+		 */
+		register_rest_route( $pmpro_namespace, '/membership_levels',
+			array(
+				array(
+					'methods'         => WP_REST_Server::READABLE,
+					'callback'        => array( $this, 'pmpro_rest_api_get_membership_levels' ),
+					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
+				),
+			)
+		);
+
+		/**
 		 * Create/Retrieve discount code.
 		 * @since 2.3
 		 * Example: https://example.com/wp-json/pmpro/v1/discount_code
@@ -186,6 +207,7 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 		/**
 		 * Get membership levels after checkout options are applied.
 		 * Example: https://example.com/wp-json/pmpro/v1/checkout_levels
+		 * @deprecated 3.0
 		 */
 		register_rest_route( $pmpro_namespace, '/checkout_levels', 
 		array(
@@ -235,6 +257,264 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 				array(
 					'methods'  => WP_REST_Server::READABLE,
 					'callback' => array( $this, 'pmpro_rest_api_recent_orders' ),
+					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
+				)
+			)
+		);
+
+		/**
+		 * Get a paginated, filterable collection of memberships (one row per user/level pair).
+		 * @since 3.9
+		 * Example: https://example.com/wp-json/pmpro/v1/memberships?level=1&status=active&page=1&per_page=20
+		 */
+		register_rest_route( $pmpro_namespace, '/memberships',
+			array(
+				array(
+					'methods'  => WP_REST_Server::READABLE,
+					'callback' => array( $this, 'pmpro_rest_api_get_memberships' ),
+					'args'     => array(
+						'page'     => array( 'sanitize_callback' => 'absint' ),
+						'per_page' => array( 'sanitize_callback' => 'absint' ),
+						'level'    => array(),
+						'status'   => array(),
+						'search'   => array( 'sanitize_callback' => 'sanitize_text_field' ),
+						'orderby'  => array( 'sanitize_callback' => 'sanitize_key' ),
+						'order'    => array( 'sanitize_callback' => 'sanitize_key' ),
+						'fields'   => array(
+							'sanitize_callback' => 'sanitize_text_field',
+							'validate_callback' => function( $value ) {
+								return $this->pmpro_rest_api_validate_fields( $value, 'memberships' );
+							},
+						),
+					),
+					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
+				)
+			)
+		);
+
+		/**
+		 * Get a paginated, filterable collection of orders.
+		 * @since 3.9
+		 * Example: https://example.com/wp-json/pmpro/v1/orders?status=success&per_page=20
+		 */
+		register_rest_route( $pmpro_namespace, '/orders',
+			array(
+				array(
+					'methods'  => WP_REST_Server::READABLE,
+					'callback' => array( $this, 'pmpro_rest_api_get_orders' ),
+					'args'     => array(
+						'page'       => array( 'sanitize_callback' => 'absint' ),
+						'per_page'   => array( 'sanitize_callback' => 'absint' ),
+						'user_id'    => array( 'sanitize_callback' => 'absint' ),
+						'level'      => array(),
+						'status'     => array(),
+						'gateway'    => array( 'sanitize_callback' => 'sanitize_text_field' ),
+						'start_date' => array( 'sanitize_callback' => 'sanitize_text_field' ),
+						'end_date'   => array( 'sanitize_callback' => 'sanitize_text_field' ),
+						'orderby'    => array( 'sanitize_callback' => 'sanitize_key' ),
+						'order'      => array( 'sanitize_callback' => 'sanitize_key' ),
+						'fields'     => array(
+							'sanitize_callback' => 'sanitize_text_field',
+							'validate_callback' => function( $value ) {
+								return $this->pmpro_rest_api_validate_fields( $value, 'orders' );
+							},
+						),
+					),
+					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
+				)
+			)
+		);
+
+		/**
+		 * Get a paginated, filterable collection of subscriptions.
+		 * @since 3.9
+		 * Example: https://example.com/wp-json/pmpro/v1/subscriptions?status=active&per_page=20
+		 */
+		register_rest_route( $pmpro_namespace, '/subscriptions',
+			array(
+				array(
+					'methods'  => WP_REST_Server::READABLE,
+					'callback' => array( $this, 'pmpro_rest_api_get_subscriptions' ),
+					'args'     => array(
+						'page'     => array( 'sanitize_callback' => 'absint' ),
+						'per_page' => array( 'sanitize_callback' => 'absint' ),
+						'user_id'  => array( 'sanitize_callback' => 'absint' ),
+						'level'    => array(),
+						'status'   => array(),
+						'gateway'  => array( 'sanitize_callback' => 'sanitize_text_field' ),
+						'orderby'  => array( 'sanitize_callback' => 'sanitize_key' ),
+						'order'    => array( 'sanitize_callback' => 'sanitize_key' ),
+						'fields'   => array(
+							'sanitize_callback' => 'sanitize_text_field',
+							'validate_callback' => function( $value ) {
+								return $this->pmpro_rest_api_validate_fields( $value, 'subscriptions' );
+							},
+						),
+					),
+					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
+				)
+			)
+		);
+
+		/**
+		 * Get the IDs that a post has been restricted to.
+		 * @since 3.0
+		 * Example: https://example.com/wp-json/pmpro/v1/post_restrictions
+		 */
+		register_rest_route( $pmpro_namespace, '/post_restrictions',
+			array(
+				array(
+					'methods'  => WP_REST_Server::READABLE,
+					'callback' => array( $this, 'pmpro_rest_api_get_post_restrictions' ),
+					'args'     => array(
+						'post_id' => array(),
+					),
+					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
+				),
+				array(
+					'methods'  => WP_REST_Server::EDITABLE,
+					'args'     => array(
+						'post_id' => array(),
+						'level_ids' => array(),
+					),
+					'callback' => array( $this, 'pmpro_rest_api_set_post_restrictions' ),
+					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
+				)
+			)
+		);
+
+		/**
+		 * Start an export.
+		 *
+		 * Route:
+		 * - POST /pmpro/v1/export/start
+		 *
+		 * Params:
+		 * - type: string (e.g., 'members', 'orders') (required)
+		 * - l: level filter (optional)
+		 * - s: search (optional)
+		 * - export_id: for status (optional)
+		 *
+		 * Example:.../wp-json/pmpro/v1/export/start
+		 *
+		 * @since 3.7
+		 * @since 3.9 Added the `$return_raw` and `$limit_override` parameters.
+		 */
+		register_rest_route( $pmpro_namespace, '/export/start',
+			array(
+				array(
+					'methods'  => WP_REST_Server::EDITABLE,
+					'callback' => function( $request ) {
+						$params = $request->get_params();
+						$type   = isset( $params['type'] ) ? sanitize_text_field( $params['type'] ) : '';
+						if ( empty( $type ) ) {
+							return new WP_REST_Response( array( 'error' => 'Missing export type.' ), 400 );
+						}
+						$force_async = ! empty( $params['force_async'] ) ? (bool) $params['force_async'] : false;
+						$exports = PMPro_Exports::instance();
+						$result  = $exports->start_export( $type, $params, $force_async );
+
+						// Trigger async queue processing if this was an async export.
+						if ( ! empty( $result['export_id'] ) ) {
+							PMPro_Action_Scheduler::dispatch_queue();
+						}
+
+						$status_code = isset( $result['error'] ) ? 400 : 200;
+						return new WP_REST_Response( $result, $status_code );
+					},
+					'permission_callback' => function( $request ) {
+						$params  = $request->get_params();
+						$type    = isset( $params['type'] ) ? sanitize_text_field( $params['type'] ) : '';
+						$exports = PMPro_Exports::instance();
+						if ( empty( $type ) ) {
+							return current_user_can( 'manage_options' ) || current_user_can( 'pmpro_memberslistcsv' ) || current_user_can( 'pmpro_orderscsv' );
+						}
+						return $exports->user_can_export( $type );
+					},
+				)
+			)
+		);
+
+		/**
+		 * Get the progress status of an export.
+		 *
+		 * Route:
+		 * - GET  /pmpro/v1/exports/status
+		 *
+		 * Example: .../wp-json/pmpro/v1/export/status?type=members&export_id=12345
+		 *
+		 * @since 3.7
+		 */
+		register_rest_route( $pmpro_namespace, '/export/status',
+			array(
+				array(
+					'methods'  => WP_REST_Server::READABLE,
+					'callback' => function( $request ) {
+						$params    = $request->get_params();
+						$type      = isset( $params['type'] ) ? sanitize_text_field( $params['type'] ) : '';
+						$export_id = isset( $params['export_id'] ) ? sanitize_text_field( $params['export_id'] ) : '';
+						if ( empty( $type ) ) {
+							return new WP_REST_Response( array( 'error' => 'Missing export type.' ), 400 );
+						}
+						$exports = PMPro_Exports::instance();
+						$result  = $exports->get_status( $type, $export_id );
+						// Never respond with 404 for logical export errors; keep 200 and surface error message.
+						if ( isset( $result['error'] ) ) {
+							$result['http_status'] = 200;
+						}
+						return new WP_REST_Response( $result, 200 );
+					},
+					'permission_callback' => function( $request ) {
+						$params  = $request->get_params();
+						$type    = isset( $params['type'] ) ? sanitize_text_field( $params['type'] ) : '';
+						$exports = PMPro_Exports::instance();
+						if ( empty( $type ) ) {
+							return current_user_can( 'manage_options' ) || current_user_can( 'pmpro_memberslistcsv' ) || current_user_can( 'pmpro_orderscsv' );
+						}
+						return $exports->user_can_export( $type );
+					},
+				)
+			)
+		);
+
+		/**
+		 * Get email log details.
+		 * @since 3.7
+		 * Example: https://example.com/wp-json/pmpro/v1/email_log_popup
+		 */
+		register_rest_route( $pmpro_namespace, '/email_log_popup',
+			array(
+				array(
+					'methods'  => WP_REST_Server::READABLE,
+					'callback' => array( $this, 'pmpro_rest_api_get_email_log_popup_contents' ),
+					'args'     => array(
+						'log_id' => array(
+							'required' => true,
+							'type' => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
+				),
+			)
+		);
+
+		/**
+		 * Get search results for the quick search bar.
+		 *
+		 * @since 3.7
+		 *
+		 * Example: https://example.com/wp-json/pmpro/v1/quick_search
+		 */
+		register_rest_route( $pmpro_namespace, '/quick_search',
+			array(
+				array(
+					'methods'  => WP_REST_Server::READABLE,
+					'callback' => array( $this, 'pmpro_rest_api_quick_search' ),
+					'args'     => array(
+						'search' => array(),
+						'type'   => array(),
+					),
 					'permission_callback' => array( $this, 'pmpro_rest_api_get_permissions_check' ),
 				)
 			)
@@ -381,7 +661,7 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 						
 						if ( is_wp_error( $user_id ) ) {
 							$error = $user_id->get_error_message();
-							return new WP_REST_Response( $error, 500 ); // Assume it failed and return a 500 error occured like core WordPress.
+							return new WP_REST_Response( $error, 500 ); // Assume it failed and return a 500 error occurred like core WordPress.
 						}
 						
 						pmpro_maybe_send_wp_new_user_notification( $user_id, $level_id );
@@ -510,12 +790,12 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 			}
 
 			$level = new PMPro_Membership_Level( $id );
-			
+
 			// Hide confirmation message if not an admin or member.
 			if ( ! empty( $level->confirmation ) 
 				 && ! pmpro_hasMembershipLevel( $id )
-				 && ! current_user_can( 'pmpro_edit_memberships' ) ) {				
-					 $level->confirmation = '';					
+				 && ! current_user_can( 'pmpro_edit_members' ) ) {
+					 $level->confirmation = '';
 			}
 
 			if ( 'json' === $response_type ) {
@@ -557,7 +837,7 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 			$initial_payment = isset( $params['initial_payment'] ) ? floatval( $params['initial_payment'] ) : $level->initial_payment;
 			$billing_amount = isset( $params['billing_amount'] ) ? floatval( $params['billing_amount'] ) : $level->billing_amount;
 			$cycle_number = isset( $params['cycle_number'] ) ? intval( $params['cycle_number'] ) : $level->cycle_number;
-			$cycle_period = isset( $params['cycle_period'] ) ? sanitize_text_field( $params['cycle_period'] ) : $level->cycle_period;
+			$cycle_period = isset( $params['cycle_period'] ) ? pmpro_sanitize_period( $params['cycle_period'] ) : $level->cycle_period;
 			$billing_limit = isset( $params['billing_limit'] ) ? sanitize_text_field( $params['billing_limit'] ) : $level->billing_limit;
 			$trial_amount = isset( $params['trial_amount'] ) ? floatval( $params['trial_amount'] ) : $level->trial_amount;
 			$trial_limit = isset( $params['trial_limit'] ) ? floatval( $params['trial_limit'] ) : $level->trial_limit;
@@ -610,6 +890,38 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 			$level = new PMPro_Membership_Level( $id );
 
 			return new WP_REST_Response( $level->delete(), 200 );
+		}
+
+		/**
+		 * Get all membership levels.
+		 * @since 3.0
+		 * Example: https://example.com/wp-json/pmpro/v1/membership_levels
+		 */
+		function pmpro_rest_api_get_membership_levels( $request ) {
+			
+			if ( ! class_exists( 'PMPro_Membership_Level' ) ) {
+				return new WP_REST_Response( 'Paid Memberships Pro level class not found.', 404 );
+			}
+
+			$params = $request->get_params();
+			$response_type = isset( $params['response_type'] ) ? sanitize_text_field( $params['response_type'] ) : null;
+
+			$levels = pmpro_getAllLevels( true, true );
+
+			// Hide confirmation message if not an admin or member.
+			if ( ! current_user_can( 'manage_options' ) && ! current_user_can( 'pmpro_membershiplevels' ) ) {
+				foreach ( $levels as $level ) {
+					if ( ! pmpro_hasMembershipLevel( $level->id ) ) {
+						$level->confirmation = '';
+					}
+				}
+			}
+
+			if ( 'json' === $response_type ) {
+				wp_send_json_success( array( "levels" => $levels ) );
+			}
+
+			return new WP_REST_Response( $levels, 200 );
 		}
 
 		/**
@@ -694,6 +1006,18 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 			$discount_code->starts = $starts;
 			$discount_code->expires = $expires;
 			$discount_code->uses = $uses;
+			if ( isset( $params['discount_type'] ) ) {
+				$discount_code->discount_type = sanitize_text_field( $params['discount_type'] );
+			}
+			if ( isset( $params['discount_value'] ) ) {
+				$discount_code->discount_value = floatval( $params['discount_value'] );
+			}
+			if ( isset( $params['apply_to_initial'] ) ) {
+				$discount_code->apply_to_initial = ! empty( $params['apply_to_initial'] ) ? 1 : 0;
+			}
+			if ( isset( $params['apply_to_recurring'] ) ) {
+				$discount_code->apply_to_recurring = ! empty( $params['apply_to_recurring'] ) ? 1 : 0;
+			}
 			$discount_code->levels = !empty( $levels_array ) ? $levels_array : $levels;
 			$discount_code->save();
 
@@ -717,7 +1041,40 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 				return new WP_REST_Response( 'No order code sent.', 400 );
 			}
 
-			return new WP_REST_Response( new MemberOrder( $code ), 200 );
+			// Build the order object to return.
+			// Need to do this because the order object now has private properties.
+			$order = new MemberOrder( $code );
+			$order_data_to_return = new stdClass();
+			if ( ! empty( $order->id ) ) {
+				$order_data_to_return->id = $order->id;
+				$order_data_to_return->code = $order->code;
+				$order_data_to_return->user_id = $order->user_id;
+				$order_data_to_return->membership_id = $order->membership_id;
+				$order_data_to_return->billing = $order->billing;
+				$order_data_to_return->subtotal = $order->subtotal;
+				$order_data_to_return->tax = $order->tax;
+				$order_data_to_return->total = $order->total;
+				$order_data_to_return->payment_type = $order->payment_type;
+				$order_data_to_return->cardtype = $order->cardtype;
+				$order_data_to_return->accountnumber = $order->accountnumber;
+				$order_data_to_return->expirationmonth = $order->expirationmonth;
+				$order_data_to_return->expirationyear = $order->expirationyear;
+				$order_data_to_return->status = $order->status;
+				$order_data_to_return->gateway = $order->gateway;
+				$order_data_to_return->gateway_environment = $order->gateway_environment;
+				$order_data_to_return->payment_transaction_id = $order->payment_transaction_id;
+				$order_data_to_return->subscription_transaction_id = $order->subscription_transaction_id;
+				$order_data_to_return->timestamp = $order->timestamp;
+				$order_data_to_return->affiliate_id = $order->affiliate_id;
+				$order_data_to_return->affiliate_subid = $order->affiliate_subid;
+				// Order notes are admin-only. Members can view their own orders here, so only include notes for admins.
+				if ( current_user_can( 'pmpro_orders' ) ) {
+					$order_data_to_return->notes = $order->notes;
+				}
+				$order_data_to_return->checkout_id = $order->checkout_id;
+			}
+
+			return new WP_REST_Response( $order_data_to_return, 200 );
 		}
 
 		/**
@@ -726,10 +1083,15 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 		 */
 		function pmpro_rest_api_permissions_get_order( $permission, $request ) {
 			$method = $request->get_method();
-			$route  = $request->get_route();
+			$route  = strtolower( $request->get_route() );
 
 			// Check if the user does not have access but is trying to get an order.
 			if ( ! $permission && 'GET' === $method && '/pmpro/v1/order' === $route ) {
+				// Only a logged-in user can own an order, so bail early for anonymous requests.
+				if ( ! is_user_logged_in() ) {
+					return $permission;
+				}
+
 				// Check if the order belongs to the user.
 				$params = $request->get_params();
 				$code   = isset( $params['code'] ) ? sanitize_text_field( $params['code'] ) : null;
@@ -737,7 +1099,7 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 				if ( ! empty( $code ) ) {
 					$order = new MemberOrder( $code );
 
-					if ( $order->user_id == get_current_user_id() ) {
+					if ( ! empty( $order->id ) && (int) $order->user_id === get_current_user_id() ) {
 						return true;
 					}
 				}
@@ -747,14 +1109,16 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 
 		/**
 		 * Get a membership level at checkout.
-		 * Note: Not compatible with MMPU.
+		 *
 		 * @since 2.4
 		 * Example: https://example.com/wp-json/pmpro/v1/checkout_level
 		 */
 		function pmpro_rest_api_get_checkout_level( $request ) {
 			$params = $request->get_params();
 
-			if ( isset( $params['level_id'] ) ) {
+			if ( isset( $params['pmpro_level' ] ) ) {
+				$level_id = intval( $params['pmpro_level'] );
+			} elseif ( isset( $params['level_id'] ) ) {
 				$level_id = intval( $params['level_id'] );
 			} elseif ( isset( $params['level'] ) ) {
 				$level_id = intval( $params['level'] );
@@ -764,22 +1128,36 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 				return new WP_REST_Response( 'No level found.', 400 );
 			}
 
-			$discount_code = isset( $params['discount_code'] ) ? sanitize_text_field( $params['discount_code'] ) : null;
-			$checkout_level = pmpro_getLevelAtCheckout( $level_id, $discount_code );
-			
-			// Hide confirmation message if not an admin or member.
-			if ( ! empty( $checkout_level->confirmation ) 
-				 && ! pmpro_hasMembershipLevel( $level_id )
-				 && ! current_user_can( 'pmpro_edit_memberships' ) ) {				
-					 $checkout_level->confirmation = '';					
+			if ( isset( $params['pmpro_discount_code'] ) ) {
+				$discount_code = sanitize_text_field( $params['pmpro_discount_code'] );
+			} elseif ( isset( $params['discount_code'] ) ) {
+				$discount_code = sanitize_text_field( $params['discount_code'] );
+			} else {
+				$discount_code = null;
 			}
-			
+
+			$checkout_level = pmpro_getLevelAtCheckout( $level_id, $discount_code );
+
+			if ( ! empty( $checkout_level ) ) {
+				// Hide confirmation message if not an admin or member.
+				if ( ! empty( $checkout_level->confirmation ) 
+					&& ! pmpro_hasMembershipLevel( $level_id )
+					&& ! current_user_can( 'pmpro_edit_members' ) ) {
+						$checkout_level->confirmation = '';
+				}
+
+				// Also add a formatted version of the initial payment.
+				$checkout_level->initial_payment_formatted = pmpro_formatPrice( $checkout_level->initial_payment );
+			}
+
 			return new WP_REST_Response( $checkout_level );
 		}
 
 		/**
 		 * Get membership levels at checkout.
 		 * Example: https://example.com/wp-json/pmpro/v1/checkout_levels
+		 *
+		 * @deprecated 3.0 Use the /pmpro/v1/checkout_level endpoint instead.
 		 */
 		function pmpro_rest_api_get_checkout_levels( $request ) {
 			$params = $request->get_params();
@@ -788,7 +1166,9 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 			if ( ! empty( $pmpro_checkout_level_ids ) ) {
 				// MMPU Compatibility...
 				$level_ids = $pmpro_checkout_level_ids;
-			} elseif ( isset( $params['level_id'] ) ) {
+			} elseif ( isset( $params['pmpro_level' ] ) ) {
+				$level_ids = explode( '+', intval( $params['pmpro_level'] ) );
+			}elseif ( isset( $params['level_id'] ) ) {
 				$level_ids = explode( '+', intval( $params['level_id'] ) );
 			} elseif ( isset( $params['level'] ) ) {
 				$level_ids = explode( '+', intval( $params['level'] ) );
@@ -803,8 +1183,17 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 			$r['initial_payment'] = 0.00;
 			foreach ( $level_ids as $level_id ) {
 				$r[ $level_id ] = pmpro_getLevelAtCheckout( $level_id, $discount_code );
+				
+				// Increment the total initial_paymnent.
 				if ( ! empty( $r[ $level_id ]->initial_payment ) ) {
 					$r['initial_payment'] += floatval( $r[ $level_id ]->initial_payment );
+				}
+
+				// Hide confirmation message if not an admin or member.
+				if ( ! empty( $r[ $level_id ]->confirmation ) 
+						&& ! pmpro_hasMembershipLevel( $level_id )
+						&& ! current_user_can( 'pmpro_membershiplevels' ) ) {				
+					$r[ $level_id ]->confirmation = '';					
 				}
 			}
 			$r['initial_payment_formatted'] = pmpro_formatPrice( $r['initial_payment'] );
@@ -856,8 +1245,6 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 			 */
 			$limit = apply_filters( 'pmpro_trigger_recent_members_limit', $limit );
 			
-			$response_type = isset( $params['response_type'] ) ? sanitize_text_field( $params['response_type'] ) : null;
-			
 			if ( empty( $params['level_status'] ) ) {
 				$level_status = [ 'active' ];
 			} else {
@@ -879,9 +1266,11 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 
 			$sql = "
 				SELECT
-					`mu`.`user_id` as `id`,
+					`mu`.`user_id` AS `id`,
 					`u`.`user_email`,
 					`u`.`user_nicename`,
+					`umf`.`meta_value` AS first_name,
+					`uml`.`meta_value` AS last_name,
 					`mu`.`membership_id`,
 					`ml`.`name` as membership_name,
 					`mu`.`status`,
@@ -891,6 +1280,12 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 					ON `mu`.`user_id` = `u`.`id`
 				LEFT JOIN `{$wpdb->pmpro_membership_levels}` AS `ml`
 					ON `ml`.`id` = `mu`.`membership_id`
+				LEFT JOIN `{$wpdb->usermeta}` AS `umf`
+					ON `umf`.`meta_key` = 'first_name'
+					AND `umf`.`user_id` = `u`.`id`
+				LEFT JOIN `{$wpdb->usermeta}` AS `uml`
+					ON `uml`.`meta_key` = 'last_name'
+					AND `uml`.`user_id` = `u`.`id`
 				WHERE
 					`mu`.`status` IN ( {$level_status_placeholders} ) 
 				ORDER BY
@@ -898,7 +1293,7 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 				LIMIT %d
 			";
 
-			$results = $wpdb->get_results( $wpdb->prepare( $sql, $prepare ) );
+			$results = $wpdb->get_results( $wpdb->prepare( $sql, $prepare ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql only interpolates $wpdb table names and a list of %s placeholders; values are bound by $wpdb->prepare() here.
 
 			// Let's format the date to ISO8601
 			$results[0]->modified = pmpro_format_date_iso8601( $results[0]->modified );
@@ -936,6 +1331,8 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 					`u`.`ID` AS `user_id`,
 					`u`.`user_email`,
 					`u`.`user_nicename`,
+					`umf`.`meta_value` AS first_name,
+					`uml`.`meta_value` AS last_name,
 					`o`.`membership_id`,
 					`o`.`billing_name`,
 					`o`.`billing_street`,
@@ -954,16 +1351,963 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 				FROM `{$wpdb->pmpro_membership_orders}` AS `o`
 				LEFT JOIN `{$wpdb->users}` AS `u`
 					ON `o`.`user_id` = `u`.`ID`
+				LEFT JOIN `{$wpdb->usermeta}` AS `umf`
+					ON `umf`.`meta_key` = 'first_name'
+					AND `umf`.`user_id` = `u`.`ID`
+				LEFT JOIN `{$wpdb->usermeta}` AS `uml`
+					ON `uml`.`meta_key` = 'last_name'
+					AND `uml`.`user_id` = `u`.`ID`
 				ORDER BY
 					`o`.`timestamp` DESC
 				LIMIT %d
 			";
 			
-			$results = $wpdb->get_results( $wpdb->prepare( $sql, $limit ) );
+			$results = $wpdb->get_results( $wpdb->prepare( $sql, $limit ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- $sql only interpolates $wpdb table names; the LIMIT value is bound by $wpdb->prepare() here.
 
 			$results[0]->timestamp = pmpro_format_date_iso8601( $results[0]->timestamp );
 
 			return new WP_REST_Response( $results, 200 );
+		}
+
+		/**
+		 * Get a paginated, filterable collection of memberships (one row per user/level pair).
+		 *
+		 * @since 3.9
+		 *
+		 * @param WP_REST_Request $request The REST request.
+		 * @return WP_REST_Response The REST response.
+		 */
+		public function pmpro_rest_api_get_memberships( $request ) {
+			$params   = $request->get_params();
+			$per_page = $this->pmpro_rest_api_get_per_page( $params );
+			$page     = $this->pmpro_rest_api_get_page( $params );
+
+			$query_args = array(
+				'limit'  => $per_page,
+				'offset' => ( $page - 1 ) * $per_page,
+			);
+			if ( isset( $params['level'] ) && '' !== $params['level'] ) {
+				$query_args['membership_id'] = array_map( 'intval', explode( ',', (string) $params['level'] ) );
+			}
+			if ( isset( $params['status'] ) && '' !== $params['status'] ) {
+				$query_args['status'] = array_map( 'sanitize_text_field', explode( ',', (string) $params['status'] ) );
+			}
+			if ( ! empty( $params['search'] ) ) {
+				$query_args['search'] = sanitize_text_field( $params['search'] );
+			}
+			if ( ! empty( $params['orderby'] ) ) {
+				$query_args['orderby'] = sanitize_key( $params['orderby'] );
+			}
+			if ( ! empty( $params['order'] ) ) {
+				$query_args['order'] = ( 'asc' === strtolower( (string) $params['order'] ) ) ? 'ASC' : 'DESC';
+			}
+
+			$total   = (int) pmpro_get_memberships( array_merge( $query_args, array( 'return_count' => true ) ) );
+			$memberships = pmpro_get_memberships( $query_args );
+
+			$fields = $this->pmpro_rest_api_get_fields( $params );
+			$items  = array();
+			foreach ( (array) $memberships as $member ) {
+				$item = array(
+					'user_id'         => (int) $member['user_id'],
+					'user_login'      => $member['user_login'],
+					'user_email'      => $member['user_email'],
+					'display_name'    => $member['display_name'],
+					'membership_id'   => (int) $member['membership_id'],
+					'membership_name' => $member['membership_name'],
+					'status'          => $member['status'],
+					'joindate'        => $this->pmpro_rest_api_maybe_iso8601( $member['joindate'] ),
+					'startdate'       => $this->pmpro_rest_api_maybe_iso8601( $member['startdate'] ),
+					'enddate'         => $this->pmpro_rest_api_maybe_iso8601( $member['enddate'] ),
+				);
+				$items[] = $this->pmpro_rest_api_apply_fields( $item, $fields );
+			}
+
+			return $this->pmpro_rest_api_collection_response( $items, $total, $page, $per_page );
+		}
+
+		/**
+		 * Get a paginated, filterable collection of orders.
+		 *
+		 * @since 3.9
+		 *
+		 * @param WP_REST_Request $request The REST request.
+		 * @return WP_REST_Response The REST response.
+		 */
+		public function pmpro_rest_api_get_orders( $request ) {
+			$params   = $request->get_params();
+			$per_page = $this->pmpro_rest_api_get_per_page( $params );
+			$page     = $this->pmpro_rest_api_get_page( $params );
+
+			$query_args = array(
+				'limit'  => $per_page,
+				'offset' => ( $page - 1 ) * $per_page,
+			);
+			if ( ! empty( $params['user_id'] ) ) {
+				$query_args['user_id'] = (int) $params['user_id'];
+			}
+			if ( isset( $params['level'] ) && '' !== $params['level'] ) {
+				$query_args['membership_level_id'] = array_map( 'intval', explode( ',', (string) $params['level'] ) );
+			}
+			if ( isset( $params['status'] ) && '' !== $params['status'] ) {
+				$query_args['status'] = array_map( 'sanitize_text_field', explode( ',', (string) $params['status'] ) );
+			}
+			if ( ! empty( $params['gateway'] ) ) {
+				$query_args['gateway'] = sanitize_text_field( $params['gateway'] );
+			}
+			if ( ! empty( $params['start_date'] ) ) {
+				$query_args['start_date'] = sanitize_text_field( $params['start_date'] );
+			}
+			if ( ! empty( $params['end_date'] ) ) {
+				$query_args['end_date'] = sanitize_text_field( $params['end_date'] );
+			}
+
+			// Sort by an allowlisted column. Unknown values fall back to the default (timestamp DESC).
+			$orderby_map = array(
+				'id'            => '`o`.`id`',
+				'user_id'       => '`o`.`user_id`',
+				'membership_id' => '`o`.`membership_id`',
+				'status'        => '`o`.`status`',
+				'gateway'       => '`o`.`gateway`',
+				'total'         => '`o`.`total`',
+				'timestamp'     => '`o`.`timestamp`',
+			);
+			if ( ! empty( $params['orderby'] ) && isset( $orderby_map[ $params['orderby'] ] ) ) {
+				$order                 = ( ! empty( $params['order'] ) && 'asc' === strtolower( (string) $params['order'] ) ) ? 'ASC' : 'DESC';
+				$query_args['orderby'] = $orderby_map[ $params['orderby'] ] . ' ' . $order;
+			}
+
+			$total  = (int) MemberOrder::get_orders( array_merge( $query_args, array( 'return_count' => true ) ) );
+			$orders = MemberOrder::get_orders( $query_args );
+
+			$fields = $this->pmpro_rest_api_get_fields( $params );
+			$items  = array();
+			foreach ( (array) $orders as $order ) {
+				$item = array(
+					'id'                           => (int) $order->id,
+					'code'                         => (string) $order->code,
+					'user_id'                      => (int) $order->user_id,
+					'membership_id'                => (int) $order->membership_id,
+					'status'                       => (string) $order->status,
+					'gateway'                      => (string) $order->gateway,
+					'gateway_environment'          => (string) $order->gateway_environment,
+					'subtotal'                     => (float) $order->subtotal,
+					'tax'                          => (float) $order->tax,
+					'total'                        => (float) $order->total,
+					'payment_transaction_id'       => (string) $order->payment_transaction_id,
+					'subscription_transaction_id'  => (string) $order->subscription_transaction_id,
+					'timestamp'                    => ! empty( $order->timestamp ) ? gmdate( DateTime::ATOM, (int) $order->timestamp ) : null,
+				);
+				$items[] = $this->pmpro_rest_api_apply_fields( $item, $fields );
+			}
+
+			return $this->pmpro_rest_api_collection_response( $items, $total, $page, $per_page );
+		}
+
+		/**
+		 * Get a paginated, filterable collection of subscriptions.
+		 *
+		 * @since 3.9
+		 *
+		 * @param WP_REST_Request $request The REST request.
+		 * @return WP_REST_Response The REST response.
+		 */
+		public function pmpro_rest_api_get_subscriptions( $request ) {
+			$params   = $request->get_params();
+			$per_page = $this->pmpro_rest_api_get_per_page( $params );
+			$page     = $this->pmpro_rest_api_get_page( $params );
+
+			$query_args = array(
+				'limit'  => $per_page,
+				'offset' => ( $page - 1 ) * $per_page,
+			);
+			if ( ! empty( $params['user_id'] ) ) {
+				$query_args['user_id'] = (int) $params['user_id'];
+			}
+			if ( isset( $params['level'] ) && '' !== $params['level'] ) {
+				$query_args['membership_level_id'] = array_map( 'intval', explode( ',', (string) $params['level'] ) );
+			}
+			if ( isset( $params['status'] ) && '' !== $params['status'] ) {
+				$query_args['status'] = array_map( 'sanitize_text_field', explode( ',', (string) $params['status'] ) );
+			}
+			if ( ! empty( $params['gateway'] ) ) {
+				$query_args['gateway'] = sanitize_text_field( $params['gateway'] );
+			}
+
+			// Sort by an allowlisted column. Unknown values fall back to the default (startdate DESC).
+			$orderby_map = array(
+				'id'                  => '`id`',
+				'user_id'             => '`user_id`',
+				'membership_level_id' => '`membership_level_id`',
+				'status'              => '`status`',
+				'gateway'             => '`gateway`',
+				'billing_amount'      => '`billing_amount`',
+				'startdate'           => '`startdate`',
+				'enddate'             => '`enddate`',
+				'next_payment_date'   => '`next_payment_date`',
+			);
+			if ( ! empty( $params['orderby'] ) && isset( $orderby_map[ $params['orderby'] ] ) ) {
+				$order                 = ( ! empty( $params['order'] ) && 'asc' === strtolower( (string) $params['order'] ) ) ? 'ASC' : 'DESC';
+				$query_args['orderby'] = $orderby_map[ $params['orderby'] ] . ' ' . $order;
+			}
+
+			$total         = (int) PMPro_Subscription::get_subscriptions( array_merge( $query_args, array( 'return_count' => true ) ) );
+			$subscriptions = PMPro_Subscription::get_subscriptions( $query_args );
+
+			$fields = $this->pmpro_rest_api_get_fields( $params );
+			$items  = array();
+			foreach ( (array) $subscriptions as $subscription ) {
+				$item = array(
+					'id'                          => (int) $subscription->get_id(),
+					'user_id'                     => (int) $subscription->get_user_id(),
+					'membership_level_id'         => (int) $subscription->get_membership_level_id(),
+					'status'                      => (string) $subscription->get_status(),
+					'gateway'                     => (string) $subscription->get_gateway(),
+					'gateway_environment'         => (string) $subscription->get_gateway_environment(),
+					'subscription_transaction_id' => (string) $subscription->get_subscription_transaction_id(),
+					'billing_amount'              => (float) $subscription->get_billing_amount(),
+					'cycle_number'                => (int) $subscription->get_cycle_number(),
+					'cycle_period'                => (string) $subscription->get_cycle_period(),
+					'startdate'                   => $subscription->get_startdate( 'c' ),
+					'enddate'                     => $subscription->get_enddate( 'c' ),
+					'next_payment_date'           => $subscription->get_next_payment_date( 'c' ),
+				);
+				$items[] = $this->pmpro_rest_api_apply_fields( $item, $fields );
+			}
+
+			return $this->pmpro_rest_api_collection_response( $items, $total, $page, $per_page );
+		}
+
+		/**
+		 * Get the requested page number for a collection request. Minimum 1.
+		 *
+		 * @since 3.9
+		 *
+		 * @param array $params The request parameters.
+		 * @return int
+		 */
+		private function pmpro_rest_api_get_page( $params ) {
+			return isset( $params['page'] ) ? max( 1, (int) $params['page'] ) : 1;
+		}
+
+		/**
+		 * Get the requested per_page value for a collection request, clamped to a hard maximum.
+		 *
+		 * @since 3.9
+		 *
+		 * @param array $params The request parameters.
+		 * @return int
+		 */
+		private function pmpro_rest_api_get_per_page( $params ) {
+			$per_page = isset( $params['per_page'] ) ? (int) $params['per_page'] : 20;
+
+			/**
+			 * Filter the maximum number of items a PMPro REST collection endpoint will return per page.
+			 *
+			 * @since 3.9
+			 *
+			 * @param int $max The maximum per_page value. Default 100.
+			 */
+			$max = (int) apply_filters( 'pmpro_rest_api_max_per_page', 100 );
+
+			if ( $per_page < 1 ) {
+				$per_page = 20;
+			}
+
+			return min( $per_page, $max );
+		}
+
+		/**
+		 * Parse the requested field list for a collection request.
+		 *
+		 * @since 3.9
+		 *
+		 * @param array $params The request parameters.
+		 * @return array Array of requested field names, or empty array for all fields.
+		 */
+		private function pmpro_rest_api_get_fields( $params ) {
+			if ( empty( $params['fields'] ) ) {
+				return array();
+			}
+			return array_filter( array_map( 'trim', explode( ',', (string) $params['fields'] ) ) );
+		}
+
+		/**
+		 * Get the field names a collection endpoint can return.
+		 *
+		 * @since 3.9
+		 *
+		 * @param string $collection One of 'memberships', 'orders' or 'subscriptions'.
+		 * @return array Array of valid field names.
+		 */
+		private function pmpro_rest_api_get_collection_fields( $collection ) {
+			$fields = array(
+				'memberships'   => array(
+					'user_id',
+					'user_login',
+					'user_email',
+					'display_name',
+					'membership_id',
+					'membership_name',
+					'status',
+					'joindate',
+					'startdate',
+					'enddate',
+				),
+				'orders'        => array(
+					'id',
+					'code',
+					'user_id',
+					'membership_id',
+					'status',
+					'gateway',
+					'gateway_environment',
+					'subtotal',
+					'tax',
+					'total',
+					'payment_transaction_id',
+					'subscription_transaction_id',
+					'timestamp',
+				),
+				'subscriptions' => array(
+					'id',
+					'user_id',
+					'membership_level_id',
+					'status',
+					'gateway',
+					'gateway_environment',
+					'subscription_transaction_id',
+					'billing_amount',
+					'cycle_number',
+					'cycle_period',
+					'startdate',
+					'enddate',
+					'next_payment_date',
+				),
+			);
+
+			return isset( $fields[ $collection ] ) ? $fields[ $collection ] : array();
+		}
+
+		/**
+		 * Validate a requested `fields` list against a collection's known fields.
+		 *
+		 * Unknown names are rejected rather than silently dropped so that callers
+		 * get told which fields actually exist.
+		 *
+		 * @since 3.9
+		 *
+		 * @param mixed  $value      The `fields` parameter value.
+		 * @param string $collection One of 'memberships', 'orders' or 'subscriptions'.
+		 * @return true|WP_Error True when valid, WP_Error otherwise.
+		 */
+		private function pmpro_rest_api_validate_fields( $value, $collection ) {
+			if ( empty( $value ) ) {
+				return true;
+			}
+
+			$known   = $this->pmpro_rest_api_get_collection_fields( $collection );
+			$unknown = array_diff( array_filter( array_map( 'trim', explode( ',', (string) $value ) ) ), $known );
+
+			if ( ! empty( $unknown ) ) {
+				return new WP_Error(
+					'rest_invalid_param',
+					sprintf(
+						/* translators: 1: comma-separated list of unrecognized field names. 2: comma-separated list of valid field names. */
+						__( 'Unknown field(s): %1$s. Valid fields are: %2$s.', 'paid-memberships-pro' ),
+						implode( ', ', $unknown ),
+						implode( ', ', $known )
+					),
+					array( 'status' => 400 )
+				);
+			}
+
+			return true;
+		}
+
+		/**
+		 * Reduce an item array to only the requested fields.
+		 *
+		 * @since 3.9
+		 *
+		 * @param array $item   The full item array.
+		 * @param array $fields The requested field names. Empty means all fields.
+		 * @return array
+		 */
+		private function pmpro_rest_api_apply_fields( $item, $fields ) {
+			if ( empty( $fields ) ) {
+				return $item;
+			}
+			return array_intersect_key( $item, array_flip( $fields ) );
+		}
+
+		/**
+		 * Format a stored datetime string as ISO 8601, returning null for empty or zero dates.
+		 *
+		 * @since 3.9
+		 *
+		 * @param string $date The datetime string.
+		 * @return string|null
+		 */
+		private function pmpro_rest_api_maybe_iso8601( $date ) {
+			if ( empty( $date ) || 0 === strpos( (string) $date, '0000-00-00' ) ) {
+				return null;
+			}
+			return pmpro_format_date_iso8601( $date );
+		}
+
+		/**
+		 * Build a collection response with pagination headers.
+		 *
+		 * @since 3.9
+		 *
+		 * @param array $items    The response items.
+		 * @param int   $total    The total number of matching records.
+		 * @param int   $page     The current page.
+		 * @param int   $per_page The page size.
+		 * @return WP_REST_Response
+		 */
+		private function pmpro_rest_api_collection_response( $items, $total, $page, $per_page ) {
+			$response    = new WP_REST_Response( $items, 200 );
+			$total_pages = $per_page > 0 ? (int) ceil( $total / $per_page ) : 0;
+
+			$response->header( 'X-WP-Total', (string) $total );
+			$response->header( 'X-WP-TotalPages', (string) $total_pages );
+
+			return $response;
+		}
+
+		/**
+		 * Get the membership level IDs restricting a given post.
+		 *
+		 * @since 3.0
+		 *
+		 * @param WP_REST_Request $request The REST request.
+		 *
+		 * @return WP_REST_Response The REST response.
+		 */
+		public function pmpro_rest_api_get_post_restrictions( $request ) {
+			global $wpdb;
+
+			$params = $request->get_params();
+
+			$post_id = isset( $params['post_id'] ) ? intval( $params['post_id'] ) : null;
+
+			if ( empty( $post_id ) ) {
+				return new WP_REST_Response( array( 'error' => 'No post ID provided.' ), 400 );
+			}
+
+			$level_ids = $wpdb->get_results( $wpdb->prepare( "SELECT `membership_id` FROM `{$wpdb->pmpro_memberships_pages}` WHERE `page_id` = %d", $post_id ) );
+
+			return new WP_REST_Response( $level_ids, 200 );
+		}
+
+		/**
+		 * Set the membership level IDs restricting a given post.
+		 *
+		 * @since 3.0
+		 *
+		 * @param WP_REST_Request $request The REST request.
+		 * @return WP_REST_Response The REST response.
+		 */
+		public function pmpro_rest_api_set_post_restrictions( $request ) {
+			global $wpdb;
+
+			$params = $request->get_params();
+
+			$post_id = isset( $params['post_id'] ) ? intval( $params['post_id'] ) : null;
+			$level_ids = isset( $params['level_ids'] ) ? array_map( 'intval', $params['level_ids'] ) : null;
+
+			if ( empty( $post_id ) ) {
+				return new WP_REST_Response( array( 'error' => 'No post ID provided.' ), 400 );
+			}
+
+			if ( ! is_array( $level_ids ) ) {
+				return new WP_REST_Response( array( 'error' => 'No level IDs provided.' ), 400 );
+			}
+
+			pmpro_update_post_level_restrictions( $post_id, $level_ids );
+
+			return new WP_REST_Response( array( 'success' => $level_ids ), 200 );
+		}
+
+		/**
+		 * Get email log details.
+		 *
+		 * @since 3.7
+		 *
+		 * @param WP_REST_Request $request The REST request.
+		 * @return WP_REST_Response The REST response.
+		 */
+		public function pmpro_rest_api_get_email_log_popup_contents( $request ) {
+			global $wpdb;
+
+			$params = $request->get_params();
+			$log_id = isset( $params['log_id'] ) ? intval( $params['log_id'] ) : null;
+
+			if ( empty( $log_id ) ) {
+				return new WP_REST_Response( array( 'error' => 'No log ID provided.' ), 400 );
+			}
+
+			// Get the email log from the database
+			$log = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM {$wpdb->pmpro_email_log} WHERE id = %d",
+				$log_id
+			) );
+
+			if ( ! $log ) {
+				return new WP_REST_Response( array( 'error' => 'Email log not found.' ), 404 );
+			}
+
+			// Use helper function to render the email log details
+			$html = pmpro_render_email_log_details( $log );
+
+			return new WP_REST_Response( array( 'html' => $html ), 200 );
+		}
+
+		/**
+		 * Get the quick search results for a search string.
+		 *
+		 * @since 3.7
+		 *
+		 * @param WP_REST_Request $request        The REST request.
+		 * @param bool            $return_raw     Whether to return structured results instead of rendering HTML. Default false.
+		 * @param int|null        $limit_override Optional maximum number of results per group.
+		 * @return WP_REST_Response The REST response.
+		 */
+		public function pmpro_rest_api_quick_search( $request, $return_raw = false, $limit_override = null ) {
+			global $wpdb;
+
+			$params = $request->get_params();
+
+			$search_string = isset( $params['search'] ) ? sanitize_text_field( $params['search'] ) : null;
+
+			if ( empty( $search_string ) ) {
+				return new WP_REST_Response( array( 'error' => 'No search string provided.' ), 400 );
+			}
+
+			// Centralized limits.
+			$limit_default  = 5;  // used when searching across "all"
+			$limit_specific = 10; // used when a specific type is selected
+
+			// Determine search type.
+			$type = isset( $params['type'] ) ? sanitize_text_field( $params['type'] ) : 'all';
+			$allowed_types = array( 'all', 'users', 'subscriptions', 'orders', 'reports', 'levels', 'discounts', 'settings', 'documentation' );
+			if ( ! in_array( $type, $allowed_types, true ) ) {
+				$type = 'all';
+			}
+			$limit = null === $limit_override
+				? ( ( 'all' === $type ) ? $limit_default : $limit_specific )
+				: max( 1, min( 20, (int) $limit_override ) );
+
+			// Build an array of results to return. Each result will be a link.
+			$results = array();
+
+			// Search Users.
+			if ( ( 'all' === $type || 'users' === $type ) && ( current_user_can( pmpro_get_edit_member_capability() ) || current_user_can( 'manage_options' ) ) ) {
+				// If we're specifically searching for users and there is a colon in the query, we are going to search by meta fields.
+				if ( strpos( $search_string, ':' ) !== false && 'users' === $type ) {
+					list( $meta_key, $meta_value ) = explode( ':', $search_string, 2 );
+					$meta_key = sanitize_text_field( trim( $meta_key ) );
+					$meta_value = sanitize_text_field( trim( $meta_value ) );
+
+					/**
+					 * Limit the meta_key lookup to custom profile fields.
+					 *
+					 * Keys that start with an underscore are WP/plugin-internal by
+					 * convention, and a handful of well-known keys hold authentication
+					 * or capability data that the quick search isn't meant to surface.
+					 *
+					 * @since 3.7.2
+					 *
+					 * @param array $blocklist List of meta_key names (lowercase) to skip.
+					 */
+					$meta_key_blocklist = apply_filters( 'pmpro_rest_api_quick_search_meta_key_blocklist', array(
+						'session_tokens',
+						'wp_capabilities',
+						'wp_user_level',
+						'user_activation_key',
+					) );
+
+					$meta_key_is_internal = (
+						'' === $meta_key
+						|| '_' === $meta_key[0]
+						|| in_array( strtolower( $meta_key ), $meta_key_blocklist, true )
+					);
+
+					if ( $meta_key_is_internal ) {
+						$user_ids = array();
+					} else {
+						$user_ids = $wpdb->get_col( $wpdb->prepare(
+							"SELECT user_id FROM {$wpdb->usermeta}
+							WHERE meta_key = %s
+							AND meta_value LIKE %s
+							LIMIT %d",
+							$meta_key,
+							$meta_value . '%',
+							$limit
+						) );
+					}
+					$users = array();
+					foreach( $user_ids as $user_id ) {
+						$user = get_userdata( $user_id );
+						if ( $user ) {
+							$users[] = $user;
+						}
+					}
+				} else {
+					// Normal user search by ID, login, or email.
+					$users = $wpdb->get_results( $wpdb->prepare(
+						"SELECT * FROM {$wpdb->users}
+						WHERE ID = %d
+						OR user_login LIKE %s
+						OR user_email LIKE %s
+						ORDER BY display_name ASC
+						LIMIT %d",
+						is_numeric( $search_string ) ? $search_string : -1,
+						$search_string . '%',
+						$search_string . '%',
+						$limit
+					) );
+				}
+				$results['users'] = array(
+					'label' => esc_html__( 'Users', 'paid-memberships-pro' ),
+					'items' => array_map(
+						function($user) {
+							return array(
+								'url'   => esc_url( add_query_arg( array( 'page' => 'pmpro-member', 'user_id' => $user->ID ), admin_url( 'admin.php' ) ) ),
+								'label' => sprintf( '<strong>%s</strong> (%s)', esc_html( $user->display_name ), esc_html( $user->user_email ) ),
+								'icon'  => 'dashicons-admin-users'
+							);
+						}, $users
+					)
+				);
+			}
+
+			// Search Subscriptions.
+			if ( ( 'all' === $type || 'subscriptions' === $type ) && ( current_user_can( pmpro_get_edit_member_capability() ) || current_user_can( 'manage_options' ) ) ) {
+				// If we're only searching subscriptions, allow loose matches.
+				if ( 'subscriptions' === $type ) {
+					$subscriptions = $wpdb->get_results( $wpdb->prepare(
+						"SELECT id, subscription_transaction_id, user_id FROM {$wpdb->pmpro_subscriptions}
+						WHERE id = %d
+						OR subscription_transaction_id LIKE %s
+						LIMIT %d",
+						is_numeric( $search_string ) ? $search_string : -1,
+						$search_string . '%',
+						$limit
+					) );
+				} else {
+					// When searching all, only allow exact matches.
+					$subscriptions = $wpdb->get_results( $wpdb->prepare(
+						"SELECT id, subscription_transaction_id, user_id FROM {$wpdb->pmpro_subscriptions}
+						WHERE id = %d
+						OR subscription_transaction_id = %s
+						LIMIT %d",
+						is_numeric( $search_string ) ? $search_string : -1,
+						$search_string,
+						$limit
+					) );
+				}
+				$results['subscriptions'] = array(
+					'label' => esc_html__( 'Subscriptions', 'paid-memberships-pro' ),
+					'items' => array_map(
+						function($subscription) {
+							$user = get_userdata( $subscription->user_id );
+							$label = $user ? sprintf( '<strong>%s</strong> (%s)', esc_html( $subscription->subscription_transaction_id ), esc_html( $user->display_name ) ) : sprintf( '<strong>%s</strong>', esc_html( $subscription->subscription_transaction_id ) );
+							return array(
+								'url'   => esc_url( add_query_arg( array( 'page' => 'pmpro-subscriptions', 'id' => $subscription->id ), admin_url( 'admin.php' ) ) ),
+								'label' => $label,
+								'icon'  => 'dashicons-update'
+							);
+						}, $subscriptions
+					)
+				);
+			}
+
+			// Search Orders.
+			if ( ( 'all' === $type || 'orders' === $type ) && ( current_user_can( 'pmpro_orders') || current_user_can( 'manage_options' ) ) ) {
+				// If we're only searching orders, allow loose matches.
+				if ( 'orders' === $type ) {
+					$orders = $wpdb->get_results( $wpdb->prepare(
+						"SELECT id, code, user_id FROM {$wpdb->pmpro_membership_orders}
+						WHERE id = %d
+						OR code LIKE %s
+						OR payment_transaction_id LIKE %s
+						LIMIT %d",
+						is_numeric( $search_string ) ? $search_string : -1,
+						$search_string . '%',
+						$search_string . '%',
+						$limit
+					) );
+				} else {
+					// When searching all, only allow exact matches.
+					$orders = $wpdb->get_results( $wpdb->prepare(
+						"SELECT id, code, user_id FROM {$wpdb->pmpro_membership_orders}
+						WHERE id = %d
+						OR code = %s
+						OR payment_transaction_id = %s
+						LIMIT %d",
+						is_numeric( $search_string ) ? $search_string : -1,
+						$search_string,
+						$search_string,
+						$limit
+					) );
+				}
+				$results['orders'] = array(
+					'label' => esc_html__( 'Orders', 'paid-memberships-pro' ),
+					'items' => array_map(
+						function($order) {
+							$user = get_userdata( $order->user_id );
+							$label = $user ? sprintf( '<strong>%s</strong> (%s)', esc_html( $order->code ), esc_html( $user->display_name ) ) : sprintf( '<strong>%s</strong>', esc_html( $order->code ) );
+							return array(
+								'url'   => esc_url( add_query_arg( array( 'page' => 'pmpro-orders', 'id' => $order->id ), admin_url( 'admin.php' ) ) ),
+								'label' => $label,
+								'icon'  => 'dashicons-money-alt'
+							);
+						}, $orders
+					)
+				);
+			}
+
+			// Search reports pages.
+			if ( ( 'all' === $type || 'reports' === $type ) && ( current_user_can( 'pmpro_reports' ) || current_user_can( 'manage_options' ) ) ) {
+				global $pmpro_reports;
+				$results['reports'] = array(
+					'label' => esc_html__( 'Reports', 'paid-memberships-pro' ),
+					'items' => array_filter(
+						array_map(
+							function($report_slug, $report_name) use ($search_string) {
+								if ( stripos( $report_name, $search_string ) === 0 ) {
+									return array(
+										'url'   => esc_url( admin_url( 'admin.php?page=pmpro-reports&report=' . $report_slug ) ),
+										'label' => sprintf( '<strong>%s</strong>', esc_html( $report_name ) ),
+										'icon'  => 'dashicons-chart-line'
+									);
+								}
+							}, array_keys($pmpro_reports), $pmpro_reports
+						)
+					)
+				);
+			}
+
+			// Search Levels.
+			if ( ( 'all' === $type || 'levels' === $type ) && ( current_user_can( 'pmpro_membershiplevels' ) || current_user_can( 'manage_options' ) ) ) {
+				$levels = $wpdb->get_results( $wpdb->prepare(
+					"SELECT id, name FROM {$wpdb->pmpro_membership_levels}
+					WHERE id = %d
+					OR name LIKE %s
+					LIMIT %d",
+					is_numeric( $search_string ) ? $search_string : -1,
+					$search_string . '%',
+					$limit
+				) );
+				$results['levels'] = array(
+					'label' => esc_html__( 'Membership Levels', 'paid-memberships-pro' ),
+					'items' => array_map(
+						function($level) {
+							return array(
+								'url'   => esc_url( add_query_arg( array( 'page' => 'pmpro-membershiplevels', 'edit' => $level->id ), admin_url( 'admin.php' ) ) ),
+								'label' => sprintf( '<strong>%s</strong>', esc_html( $level->name ) ),
+								'icon'  => 'dashicons-groups'
+							);
+						}, $levels
+					)
+				);
+			}
+
+			// Search Discount Codes.
+			if ( ( 'all' === $type || 'discounts' === $type ) && ( current_user_can( 'pmpro_discountcodes' ) || current_user_can( 'manage_options' ) ) ) {
+				$discounts = $wpdb->get_results( $wpdb->prepare(
+					"SELECT id, code FROM {$wpdb->pmpro_discount_codes}
+					WHERE id = %d
+					OR code LIKE %s
+					LIMIT %d",
+					is_numeric( $search_string ) ? $search_string : -1,
+					$search_string . '%',
+					$limit
+				) );
+				$results['discounts'] = array(
+					'label' => esc_html__( 'Discount Codes', 'paid-memberships-pro' ),
+					'items' => array_map(
+						function($discount) {
+							return array(
+								'url'   => esc_url( add_query_arg( array( 'page' => 'pmpro-discountcodes', 'edit' => $discount->id ), admin_url( 'admin.php' ) ) ),
+								'label' => sprintf( '<strong>%s</strong>', esc_html( $discount->code ) ),
+								'icon'  => 'dashicons-tag'
+							);
+						}, $discounts
+					)
+				);
+			}
+
+			// Search Settings Pages.
+			// Note: We are using the paid-memberships-pro text domain here to match the settings page names that are actually being used.
+			if ( 'all' === $type || 'settings' === $type ) {
+				$settings_pages = array(
+					__( 'Levels', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-membershiplevels',
+						'permission' => 'pmpro_membershiplevels',
+					),
+					__( 'Discount Codes', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-discountcodes',
+						'permission' => 'pmpro_discountcodes',
+					),
+					__( 'Pages', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-pagesettings',
+						'permission' => 'pmpro_pagesettings',
+					),
+					__( 'Payments', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-paymentsettings',
+						'permission' => 'pmpro_paymentsettings',
+					),
+					__( 'Security', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-securitysettings',
+						'permission' => 'pmpro_securitysettings',
+					),
+					__( 'Email', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-emailsettings',
+						'permission' => 'pmpro_emailsettings',
+					),
+					__( 'Email Templates', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-emailtemplates',
+						'permission' => 'pmpro_emailsettings',
+					),
+					__( 'User Fields', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-userfields',
+						'permission' => 'pmpro_userfields',
+					),
+					__( 'Design', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-designsettings',
+						'permission' => 'pmpro_designsettings',
+					),
+					__( 'Advanced', 'paid-memberships-pro' ) => array(
+						'slug' => 'pmpro-advancedsettings',
+						'permission' => 'pmpro_advancedsettings',
+					),
+				);
+				// Add payment gateways to settings pages.
+				$gateways = pmpro_gateways();
+				foreach( $gateways as $gateway => $nice_name ) {
+					$settings_pages[ $nice_name ] = array(
+						'slug' => 'pmpro-paymentsettings&edit_gateway=' . urlencode( $gateway ),
+						'permission' => 'pmpro_paymentsettings',
+						'label' => esc_html__( 'Payments', 'paid-memberships-pro' ) . ' > ' . esc_html( $nice_name ),
+					);
+				}
+				// Add email templates to settings pages.
+				$email_templates = PMPro_Email_Template::get_all_email_templates();
+				foreach( $email_templates as $template_slug => $template_class ) {
+					$template_name = $template_class::get_template_name();
+					$settings_pages[ $template_name ] = array(
+						'slug' => 'pmpro-emailtemplates&edit=' . urlencode( $template_slug ),
+						'permission' => 'pmpro_emailsettings',
+						'label' => esc_html__( 'Email Templates', 'paid-memberships-pro' ) . ' > ' . esc_html( $template_name ),
+					);
+				}
+				$results['settings'] = array(
+					'label' => esc_html__( 'Settings', 'paid-memberships-pro' ),
+					'items' => array_filter(
+						array_map(
+							function($name, $info) use ($search_string) {
+								// Check if $name starts with the query and user has permission.
+								if ( stripos( $name, $search_string ) === 0 && ( current_user_can( $info['permission'] ) || current_user_can( 'manage_options' ) ) ) {
+									return array(
+										'url'   => esc_url( admin_url( 'admin.php?page=' . $info['slug'] ) ),
+										'label' => sprintf( '<strong>%s</strong>', esc_html( isset( $info['label'] ) ? $info['label'] : $name ) ),
+										'icon'  => 'dashicons-admin-generic'
+									);
+								}
+							}, array_keys($settings_pages), $settings_pages
+						)
+					)
+				);
+			}
+
+			// Search paidmembershipspro.com.
+			if ( 'all' === $type || 'documentation' === $type ) {
+				$docs = array(
+					array(
+						'label' => 'Caching',
+						'url'   => 'https://www.paidmembershipspro.com/documentation/advanced/caching/',
+						'tags'  => array( 'cache', 'caching', 'performance' ),
+					),
+					array(
+						'label' => 'Hosting Recommendations',
+						'url'   => 'https://www.paidmembershipspro.com/recommendations-web-hosting-support-pmpro/',
+						'tags'  => array( 'host', 'hosting', 'performance' ),
+					),
+				);
+				$results['documentation'] = array(
+					'label' => esc_html__( 'Documentation', 'paid-memberships-pro' ),
+					'items' => array_merge(
+						array_filter(
+							array_map(
+								function($doc) use ($search_string) {
+									foreach ( $doc['tags'] as $tag ) {
+										if ( stripos( $tag, $search_string ) === 0 ) {
+											return array(
+												'url'   => esc_url( $doc['url'] ),
+												'label' => sprintf( '<strong>%s</strong>', esc_html( $doc['label'] ) ),
+												'icon'  => 'dashicons-book',
+												'new_tab' => true,
+											);
+										}
+									}
+								}, $docs
+							)
+						),
+					)
+				);
+
+				// For documentation, show one fewer results plus the "search website" link.
+				$results['documentation']['items'] = array_slice( $results['documentation']['items'], 0, $limit - 1 );
+				$results['documentation']['items'][] = array(
+					'url'   => esc_url( 'https://www.paidmembershipspro.com/?s=' . urlencode( $search_string ) ),
+					'label' => sprintf( '<strong>%s</strong>', esc_html__( 'Search Paid Memberships Pro Website', 'paid-memberships-pro' ) ),
+					'icon'  => 'dashicons-search',
+					'new_tab' => true,
+				);
+			}
+
+			if ( $return_raw ) {
+				return new WP_REST_Response( $results, 200 );
+			}
+
+			// Build HTML results.
+			$html_results = '<table class="widefat striped">';
+			foreach ( $results as $section_slug => $section ) {
+				if ( empty( $section['items'] ) ) {
+					continue;
+				}
+
+				if ( 'all' === $type ) {
+					$html_results .= '<tbody><tr><th scope="rowgroup" colspan="2">' . esc_html( $section['label'] ) . '</th></tr>';
+				}
+
+				// Limit to the max number of items.
+				$items_to_show = array_slice( $section['items'], 0, $limit );
+
+				foreach ( $items_to_show as $item ) {
+					$icon_html = '';
+					if ( ! empty( $item['icon'] ) ) {
+						$icon_html = '<span class="dashicons ' . esc_attr( $item['icon'] ) . '" aria-hidden="true"></span>';
+					}
+					$html_results .= '<tr><td>' . $icon_html . '</td><td><a href="' . esc_url( $item['url'] ) . '" ' . ( ! empty( $item['new_tab'] ) ? 'target="_blank"' : '' ) . '>' . wp_kses_post( $item['label'] ) . '</a></td></tr>';
+				}
+
+				$html_results .= '</tbody>';
+			}
+
+			// If we don't have any results.
+			if ( $html_results === '<table class="widefat striped">' ) {
+				$html_results .= '<tbody><tr><td colspan="2">' . esc_html__( 'No results found.', 'paid-memberships-pro' ) . '</td></tr></tbody>';
+			}
+
+			$html_results .= '</table>';
+
+			// Return results.
+			wp_send_json_success( $html_results );
 		}
 
 		/**
@@ -972,40 +2316,81 @@ if ( class_exists( 'WP_REST_Controller' ) ) {
 		 * 'administrator' for any other type of request.
 		 *
 		 * @since 2.3
+		 * @since 2.12.6 Now allowing arrays in $route_caps so you can have a different permission per HTTP method.
 		 */
 		 function pmpro_rest_api_get_permissions_check( $request ) {
 
 			$method = $request->get_method();
-			$route = $request->get_route();
+			$route = strtolower( $request->get_route() );
 
-			// Default to requiring pmpro_edit_memberships capability.
-			$permission = current_user_can( 'pmpro_edit_memberships' );
+			// Default to requiring pmpro_edit_members capability.
+			// NOTE: This basically means that anyone with the pmpro_edit_members capability could potentially do anything made available through the API in this file.
+			$permission = current_user_can( 'pmpro_edit_members' );
 
 			// Check other caps for some routes.
 			$route_caps = array(
-				'/pmpro/v1/has_membership_access' => 'pmpro_edit_memberships',
-				'/pmpro/v1/get_membership_level_for_user' => 'pmpro_edit_memberships',
-				'/pmpro/v1/get_membership_levels_for_user' => 'pmpro_edit_memberships',
-				'/pmpro/v1/change_membership_level' => 'pmpro_edit_memberships',
-				'/pmpro/v1/cancel_membership_level' => 'pmpro_edit_memberships',
-				'/pmpro/v1/membership_level' => true,
+				'/pmpro/v1/has_membership_access' => 'pmpro_edit_members',
+				'/pmpro/v1/get_membership_level_for_user' => 'pmpro_edit_members',
+				'/pmpro/v1/get_membership_levels_for_user' => 'pmpro_edit_members',
+				'/pmpro/v1/change_membership_level' => 'pmpro_edit_members',
+				'/pmpro/v1/cancel_membership_level' => 'pmpro_edit_members',
+				'/pmpro/v1/membership_level' => array(
+					'GET' => true,
+					'POST' => 'pmpro_membershiplevels',
+					'PUT' => 'pmpro_membershiplevels',
+					'PATCH' => 'pmpro_membershiplevels',
+					'DELETE' => 'pmpro_membershiplevels',
+				),
+				'/pmpro/v1/membership_levels' => true,
 				'/pmpro/v1/discount_code' => 'pmpro_discountcodes',
 				'/pmpro/v1/order' => 'pmpro_orders',
 				'/pmpro/v1/checkout_level' => true,
 				'/pmpro/v1/checkout_levels' => true,
 				'/pmpro/v1/me' => true,
-				'/pmpro/v1/recent_memberships' => 'pmpro_edit_memberships',
-				'/pmpro/v1/recent_orders' => 'pmpro_orders'
+				'/pmpro/v1/recent_memberships' => 'pmpro_edit_members',
+				'/pmpro/v1/recent_orders' => 'pmpro_orders',
+				'/pmpro/v1/memberships' => 'pmpro_edit_members',
+				'/pmpro/v1/orders' => 'pmpro_orders',
+				'/pmpro/v1/subscriptions' => 'pmpro_edit_members',
+				'/pmpro/v1/post_restrictions' => array(
+					'capability' => 'edit_post',
+					'request_param' => 'post_id',
+				),
+				'/pmpro/v1/email_log_popup' => 'pmpro_reports',
+				'/pmpro/v1/quick_search' => true, // Permissions will be checked per result type.
 			);
-			$route_caps = apply_filters( 'pmpro_rest_api_route_capabilities', $route_caps, $request );			
+			$route_caps = apply_filters( 'pmpro_rest_api_route_capabilities', $route_caps, $request );
+
+			// Routes are matched case-insensitively by WordPress, so normalize the keys to match the lowercased $route.
+			$route_caps = array_change_key_case( $route_caps, CASE_LOWER );
 			
+			// Check if we have a specific permission to check for this route/method.
 			if ( isset( $route_caps[$route] ) ) {
-				if ( $route_caps[$route] === true ) {
-					// public
-					$permission = true;
-				} else {									
-					$permission = current_user_can( $route_caps[$route] );					
-				}				
+				// Find the permission to check.
+				if ( is_array ( $route_caps[$route] ) && isset( $route_caps[$route][$method] ) ) {
+					// Different permission for this method, use it.
+					$permission_to_check = $route_caps[$route][$method];
+				} elseif ( is_array( $route_caps[$route] ) && ! isset( $route_caps[$route]['capability'] ) ) {
+					// No permission for this method, default to false.
+					// Skipping if there is a capability set as this is likely an array with a specific post/user ID to check a capability for.
+					$permission_to_check = false;
+				} else {
+					// Same permission for all methods, use it.
+					$permission_to_check = $route_caps[$route];
+				}
+
+				// Check the permission.
+				if ( $permission_to_check === true || $permission_to_check === false ) {
+					// For true or false, just pass it along.
+					$permission = $permission_to_check;
+				} elseif ( is_array( $permission_to_check ) && isset( $permission_to_check['capability'] ) && isset( $permission_to_check['request_param'] ) ) {
+					// Check if the current user has this capability.
+					// This is used in cases like edit_post where we need to check a specific post ID.
+					$permission = current_user_can( $permission_to_check['capability'], $request->get_param( $permission_to_check['request_param'] ) );
+				} else {
+					// Check if the current user has this capability.
+					$permission = current_user_can( $permission_to_check );
+				}
 			}
 
 			// Is the request method allowed? We disable DELETE by default.

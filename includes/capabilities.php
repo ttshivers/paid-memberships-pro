@@ -1,4 +1,8 @@
 <?php
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 //make sure administrators have correct capabilities
 function pmpro_check_admin_capabilities()
 {
@@ -49,25 +53,51 @@ function pmpro_get_capability_defs($role)
     // TODO: Add other standard roles (if/when needed)
 
     // caps for the administrator role
-    $cap_array = array(
-        'pmpro_memberships_menu',
-        'pmpro_dashboard',
-        'pmpro_membershiplevels',
-        'pmpro_edit_memberships',
-        'pmpro_pagesettings',
-        'pmpro_paymentsettings',
-        'pmpro_emailsettings',
-        'pmpro_emailtemplates',
-        'pmpro_advancedsettings',
-        'pmpro_addons',
-        'pmpro_memberslist',
-        'pmpro_memberslistcsv',
-        'pmpro_reports',
-        'pmpro_orders',
-        'pmpro_orderscsv',
-        'pmpro_discountcodes',
-        'pmpro_updates',
-    );
+	$cap_array = array(
+		'pmpro_memberships_menu',
+		'pmpro_dashboard',
+		'pmpro_wizard',
+		'pmpro_membershiplevels',
+		'pmpro_edit_members',
+		'pmpro_pagesettings',
+		'pmpro_paymentsettings',
+		'pmpro_taxsettings',
+		'pmpro_securitysettings',
+		'pmpro_emailsettings',
+		'pmpro_emailtemplates',
+		'pmpro_designsettings',
+		'pmpro_advancedsettings',
+		'pmpro_addons',
+		'pmpro_loginscsv',
+		'pmpro_memberslist',
+		'pmpro_memberslistcsv',
+		'pmpro_reports',
+		'pmpro_reportscsv',
+		'pmpro_orders',
+		'pmpro_orderscsv',
+		'pmpro_sales_report_csv',
+		'pmpro_discountcodes',
+		'pmpro_userfields',
+		'pmpro_updates',
+		'pmpro_manage_pause_mode',
+		'pmpro_view_as'
+	);
 
     return apply_filters( "pmpro_assigned_{$role}_capabilities", $cap_array);
+}
+
+/**
+ * Get the capability required to edit a member.
+ * @since 3.0
+ * @return string
+ */
+function pmpro_get_edit_member_capability() {
+    /**
+     * Filter the capability required to edit a member.
+     * @since 3.0
+     * @param string $capability The capability required to edit a member.
+     *                           Default 'pmpro_edit_members'.
+     * @return string
+     */
+    return apply_filters( 'pmpro_edit_member_capability', 'pmpro_edit_members' );
 }

@@ -15,13 +15,10 @@ jQuery( document ).ready( function( $ ) {
 	}
 	elements = stripe.elements();
 
-	/**
-	 * Set up default credit card fields.
-	 */
-	// Create Elements.
-	cardNumber = elements.create('cardNumber');
-	cardExpiry = elements.create('cardExpiry');
-	cardCvc = elements.create('cardCvc');
+	// Set up default credit card fields.
+	cardNumber = elements.create('cardNumber', { style: pmproStripe.style });
+	cardExpiry = elements.create('cardExpiry', { style: pmproStripe.style });
+	cardCvc = elements.create('cardCvc', { style: pmproStripe.style });
 
 	// Mount Elements. Ensure CC field is present before loading Stripe.
 	if ( $( '#AccountNumber' ).length > 0 ) { 
@@ -68,6 +65,28 @@ jQuery( document ).ready( function( $ ) {
 		pmpro_require_billing = pmproStripe.pmpro_require_billing;
 	}
 	$( '.pmpro_form' ).submit( function( event ) {
+		// If the gateway field is present and not set to stripe, return.
+		if ( $(this).find('input[name="gateway"]').length > 0 && $(this).find('input[name="gateway"]:checked').val() !== 'stripe' ) {
+			return;
+		}
+
+		// If default is already being prevented, don't try to initiate the payment process.
+		// Likely caused by ReCAPTCHA failing.
+		if ( event.isDefaultPrevented() ) {
+			return;
+		}
+
+		// If there is no "pmpro_level" input (or "level" input for legacy page templates), then this is not a checkout form. Return.
+		if ( $(this).find('input[name="pmpro_level"]').length === 0 && $(this).find('input[name="level"]').length === 0 ) {
+			return;
+		}
+
+		// If there is a payment method ID already, then this is a form submission after card authentication.
+		// This may be the case when the payment request button is used, for example.
+		if ( $(this).find('input[name="payment_method_id"]').length > 0 ) {
+			return;
+		}
+
 		var name, address;
 
 		// Prevent the form from submitting with the default action.
@@ -76,14 +95,14 @@ jQuery( document ).ready( function( $ ) {
 		// Double check in case a discount code made the level free.
 		if ( typeof pmpro_require_billing === 'undefined' || pmpro_require_billing ) {
 			// Get the data needed to create a payment method for this checkout.
-			if ( pmproStripe.verifyAddress ) {
+			if ( $( '#baddress1' ).length ) {
 				address = {
-					line1: $( '#baddress1' ).val(),
-					line2: $( '#baddress2' ).val(),
-					city: $( '#bcity' ).val(),
-					state: $( '#bstate' ).val(),
-					postal_code: $( '#bzipcode' ).val(),
-					country: $( '#bcountry' ).val(),
+					line1: $( '#baddress1' ).length ? $( '#baddress1' ).val() : '',
+					line2: $( '#baddress2' ).length ? $( '#baddress2' ).val() : '',
+					city: $( '#bcity' ).length ? $( '#bcity' ).val() : '',
+					state: $( '#bstate' ).length ? $( '#bstate' ).val() : '',
+					postal_code: $( '#bzipcode' ).length ? $( '#bzipcode' ).val() : '',
+					country: $( '#bcountry' ).length ? $( '#bcountry' ).val() : '',
 				}
 			}
 
@@ -117,9 +136,9 @@ jQuery( document ).ready( function( $ ) {
 
 		// Get the level price so that information can be shown in payment request popup
 		jQuery.noConflict().ajax({
-			url: pmproStripe.restUrl + 'pmpro/v1/checkout_levels',
+			url: pmproStripe.restUrl + 'pmpro/v1/checkout_level',
 			dataType: 'json',
-			data: jQuery( "#pmpro_form" ).serialize(),
+			data: pmpro_getCheckoutFormDataForCheckoutLevels(),
 			success: function(data) {
 				if ( data.hasOwnProperty('initial_payment') ) {
 					// Build payment request button.
@@ -151,7 +170,7 @@ jQuery( document ).ready( function( $ ) {
 						$('#pmpro_processing_message').css('visibility', 'visible');
 						$('#payment-request-button').hide();
 						/*
-						 Close the payment request interface immeditately. This is not the intended
+						 Close the payment request interface immediately. This is not the intended
 						 implementation from Stripe, but we are submitting the payment method
 						 through our default checkout process instead of letting Stripe
 						 process it through	the payment request button. Closing immediately also
@@ -165,15 +184,15 @@ jQuery( document ).ready( function( $ ) {
 			}
 		});
 		// Hide payment request button on form submit to prevent double charges.
-		jQuery('form').submit(function(){
+		jQuery('#pmpro_form').submit(function(){
 			jQuery('#payment-request-button').hide();
 		});	
 		// Update price shown in payment request button if price changes.
 		function stripeUpdatePaymentRequestButton() {
 			jQuery.noConflict().ajax({
-				url: pmproStripe.restUrl + 'pmpro/v1/checkout_levels',
+				url: pmproStripe.restUrl + 'pmpro/v1/checkout_level',
 				dataType: 'json',
-				data: jQuery( "#pmpro_form" ).serialize(),
+				data: pmpro_getCheckoutFormDataForCheckoutLevels(),
 				success: function(data) {
 					if ( data.hasOwnProperty('initial_payment') ) {
 						paymentRequest.update({
@@ -198,11 +217,22 @@ jQuery( document ).ready( function( $ ) {
 	 */
 	function pmpro_stripeResponseHandler( response ) {
 
-		var form, data, card, paymentMethodId;
+		var form, data, card, paymentMethodId, errorMessage, publishableKeyError;
 
 		form = $('#pmpro_form, .pmpro_form');
 
 		if (response.error) {
+			errorMessage = response.error.message;
+			publishableKeyError = $.inArray( response.error.code, [ 'api_key_expired', 'platform_api_key_expired', 'invalid_api_key' ] ) !== -1 ||
+				( response.error.type === 'invalid_request_error' && typeof errorMessage === 'string' && ( errorMessage.indexOf( 'Invalid API Key provided' ) === 0 || errorMessage.indexOf( 'Expired API Key provided' ) === 0 ) );
+			if ( publishableKeyError && pmproStripe.publishableKeyRefreshNonce ) {
+				$.post( pmproStripe.ajaxUrl, {
+					action: 'pmpro_stripe_refresh_publishable_key',
+					nonce: pmproStripe.publishableKeyRefreshNonce
+				} );
+				errorMessage = pmproStripe.msgPublishableKeyRefreshed;
+			}
+
 			// There was an issue with the payment method supplied or card authentication failed.
 			// Re-enable the submit button.
 			$('.pmpro_btn-submit-checkout,.pmpro_btn-submit').removeAttr('disabled');
@@ -211,7 +241,8 @@ jQuery( document ).ready( function( $ ) {
 			$('#pmpro_processing_message').css('visibility', 'hidden');
 
 			// error message
-			$( '#pmpro_message' ).text( response.error.message ).addClass( 'pmpro_error' ).removeClass( 'pmpro_alert' ).removeClass( 'pmpro_success' ).show();
+			$( '#pmpro_message' ).text( errorMessage ).addClass( 'pmpro_error' ).removeClass( 'pmpro_alert' ).removeClass( 'pmpro_success' ).attr('role', 'alert').show();
+			$( '#pmpro_message_bottom' ).text( errorMessage ).addClass( 'pmpro_error' ).removeClass( 'pmpro_alert' ).removeClass( 'pmpro_success' ).attr('role', 'alert').show();
 			
 		} else if ( response.paymentMethod ) {			
 			// A payment method was created successfully. Submit the checkout form and finish the checkout in PHP.
@@ -234,7 +265,7 @@ jQuery( document ).ready( function( $ ) {
 			form.append( '<input type="hidden" name="ExpirationYear" value="' + card.exp_year + '"/>' );
 
 			// and submit
-			form.get(0).submit();			
+			form.submit();			
 			
 		} else if ( response.paymentIntent || response.setupIntent ) {
 			// Card authentication was successful. Finish the checkout in PHP.
@@ -270,7 +301,7 @@ jQuery( document ).ready( function( $ ) {
 			form.append( '<input type="hidden" name="AccountNumber" value="XXXXXXXXXXXX' + card.last4 + '"/>' );
 			form.append( '<input type="hidden" name="ExpirationMonth" value="' + ( '0' + card.exp_month ).slice( -2 ) + '"/>' );
 			form.append( '<input type="hidden" name="ExpirationYear" value="' + card.exp_year + '"/>' );
-			form.get(0).submit();
+			form.submit();
 			return true;
 		}
 	}
